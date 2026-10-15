@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from .linked_list_view import LinkedListView
+from .presentation import format_variable_value
 
 
 class VisualizerPanel(QWidget):
@@ -124,7 +125,8 @@ class VisualizerPanel(QWidget):
         self.diagram.set_snapshot(snapshot)
         self.explanation.setText(f"{snapshot.get('event_type', 'step')}: {snapshot.get('explanation', '')}")
         self.variables.setPlainText("\n".join(
-            f"{name} = {value!r}" for name, value in snapshot.get("variables", {}).items()
+            f"{name} = {format_variable_value(value)}"
+            for name, value in snapshot.get("variables", {}).items()
         ) or "(no tracked variables)")
         self.program_output_view.setPlainText("\n".join(
             snapshot.get("program_output", self.program_output)

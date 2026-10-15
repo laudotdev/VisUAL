@@ -169,3 +169,10 @@ def test_update_keeps_node_identity_and_links():
     assert before_by_id.keys() == after_by_id.keys()
     assert {key: node["next"] for key, node in before_by_id.items()} == {key: node["next"] for key, node in after_by_id.items()}
     assert any(before_by_id[key]["data"] != after_by_id[key]["data"] for key in before_by_id)
+
+
+def test_traversal_snapshot_marks_the_node_printed():
+    result = ControlledInterpreter().run(PROGRAM)
+    output_steps = [step for step in result.snapshots if step["event_type"] == "output"]
+    assert [step["traversed_node_ref"] for step in output_steps] == [2, 3]
+    assert all(step["traversed_node_ref"] in {node["id"] for node in step["nodes"]} for step in output_steps)

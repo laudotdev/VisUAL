@@ -42,6 +42,7 @@ class LinkedListView(QWidget):
         width = max(1, self.width())
         nodes = self._snapshot.get("nodes", [])
         head_ref = self._snapshot.get("head_ref")
+        traversed_ref = self._snapshot.get("traversed_node_ref")
         if not nodes:
             painter.setPen(QColor("#c5cbd3"))
             painter.drawText(self.rect(), Qt.AlignCenter, "head  →  None\n\n(empty linked list)")
@@ -68,8 +69,9 @@ class LinkedListView(QWidget):
 
         for node in nodes:
             rect = positions[node["id"]]
-            painter.setPen(QPen(QColor("#78a9ff"), 1.5))
-            painter.setBrush(QBrush(QColor("#29384d")))
+            is_traversed = node["id"] == traversed_ref
+            painter.setPen(QPen(QColor("#66bb6a" if is_traversed else "#78a9ff"), 2 if is_traversed else 1.5))
+            painter.setBrush(QBrush(QColor("#315c38" if is_traversed else "#29384d")))
             painter.drawRoundedRect(rect, 7, 7)
             split_x = rect.left() + rect.width() * 0.66
             painter.drawLine(int(split_x), int(rect.top()), int(split_x), int(rect.bottom()))

@@ -77,6 +77,7 @@ class ControlledInterpreter:
         self.max_output_characters = 1_000_000
         self.max_string_characters = 100_000
         self.max_integer_bits = 4096
+        self._traversed_node_ref: int | None = None
 
     def run(self, source: str) -> ExecutionResult:
         self._reset()
@@ -162,6 +163,7 @@ class ControlledInterpreter:
         elif isinstance(node, ast.Expr):
             if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id == "print":
                 values = [self._eval(arg) for arg in node.value.args]
+                self._traversed_node_ref = self._node_reference_from_print(node.value)
                 self._append_output(" ".join(str(self._display_value(value)) for value in values))
                 event, explanation = "output", "Printed program output."
             else:
@@ -462,7 +464,17 @@ class ControlledInterpreter:
             "nodes": nodes, "next_refs": {str(item["id"]): item["next"] for item in nodes},
             "head_ref": head_ref, "variables": variables, "explanation": explanation,
             "program_output": list(self.output), "status": self.status,
+            "traversed_node_ref": self._traversed_node_ref,
         }
+
+    def _node_reference_from_print(self, call: ast.Call) -> int | None:
+        """Return the node ID printed by a supported traversal statement."""
+        for argument in call.args:
+            if isinstance(argument, ast.Attribute) and argument.attr == "data":
+                value = self._eval(argument.value)
+                if isinstance(value, _Instance) and value.class_name == "Node":
+                    return value.identity
+        return None
 
     def _record(self, node: ast.AST | None, event_type: str, explanation: str, force: bool = False) -> None:
         if len(self.snapshots) >= self.max_snapshots and not force:

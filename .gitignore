@@ -29,7 +29,4 @@ dist/
 # Local files
 /pasted-text.txt
 /requirements-dev.txt
-/visual/
-
-# Documentation
-/README.md
+/visual/README.md

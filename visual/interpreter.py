@@ -163,6 +163,7 @@ class ControlledInterpreter:
                 value = self._eval(node.value)
                 self._assign(node.target, value)
                 event, explanation = self._assignment_event(node, value)
+                explanation = self._pending_explanation or explanation
         elif isinstance(node, ast.AugAssign):
             old = self._eval(node.target)
             right = self._eval(node.value)

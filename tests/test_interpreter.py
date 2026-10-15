@@ -176,3 +176,19 @@ def test_traversal_snapshot_marks_the_node_printed():
     output_steps = [step for step in result.snapshots if step["event_type"] == "output"]
     assert [step["traversed_node_ref"] for step in output_steps] == [2, 3]
     assert all(step["traversed_node_ref"] in {node["id"] for node in step["nodes"]} for step in output_steps)
+
+
+def test_explanations_include_factual_values_and_output():
+    result = ControlledInterpreter().run(PROGRAM)
+    value_update = next(step for step in result.snapshots if step["event_type"] == "value_update")
+    assert "changed from" in value_update["explanation"]
+    assert "to" in value_update["explanation"]
+    output = next(step for step in result.snapshots if step["event_type"] == "output")
+    assert "Printed" in output["explanation"]
+    assert "11" in output["explanation"]
+
+
+def test_condition_explanation_identifies_expression_and_result():
+    result = ControlledInterpreter().run(PROGRAM)
+    condition = next(step for step in result.snapshots if step["event_type"] == "condition")
+    assert "evaluated to" in condition["explanation"]

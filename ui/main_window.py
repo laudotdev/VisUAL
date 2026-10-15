@@ -1371,7 +1371,7 @@ class MainWindow(QMainWindow):
                 box.setInformativeText("Evidence:\n" + "\n".join(analysis.evidence) + "\n\nDiagnostics:\n" + detail)
             else:
                 box.setInformativeText(detail)
-            run_normal = box.addButton("Run Normal", QMessageBox.AcceptRole)
+            run_normal = box.addButton("Run as Lau-PyDE", QMessageBox.AcceptRole)
             box.addButton("Cancel", QMessageBox.RejectRole)
             box.exec()
             if box.clickedButton() is run_normal:

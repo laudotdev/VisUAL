@@ -25,3 +25,9 @@ env/
 build/
 dist/
 *.egg-info/
+
+pasted-text.txt
+requirements-dev.txt
+
+/visual
+README.md

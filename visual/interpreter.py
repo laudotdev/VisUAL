@@ -29,6 +29,13 @@ class _Instance:
         self.attrs: dict[str, Any] = {}
 
 
+class _Missing:
+    pass
+
+
+_MISSING = _Missing()
+
+
 @dataclass
 class _Method:
     owner: _Instance
@@ -78,6 +85,7 @@ class ControlledInterpreter:
         self.max_string_characters = 100_000
         self.max_integer_bits = 4096
         self._traversed_node_ref: int | None = None
+        self._pending_explanation: str | None = None
 
     def run(self, source: str) -> ExecutionResult:
         self._reset()
@@ -149,6 +157,7 @@ class ControlledInterpreter:
             for target in node.targets:
                 self._assign(target, value)
             event, explanation = self._assignment_event(node, value)
+            explanation = self._pending_explanation or explanation
         elif isinstance(node, ast.AnnAssign):
             if node.value is not None:
                 value = self._eval(node.value)
@@ -164,14 +173,17 @@ class ControlledInterpreter:
             if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id == "print":
                 values = [self._eval(arg) for arg in node.value.args]
                 self._traversed_node_ref = self._node_reference_from_print(node.value)
-                self._append_output(" ".join(str(self._display_value(value)) for value in values))
-                event, explanation = "output", "Printed program output."
+                emitted = " ".join(str(self._display_value(value)) for value in values)
+                self._append_output(emitted)
+                event, explanation = "output", f"Printed {emitted!r} to Program Output."
             else:
                 self._eval(node.value)
                 event, explanation = "expression", "Evaluated an expression or method call."
         elif isinstance(node, ast.If):
             condition = bool(self._eval(node.test))
-            event, explanation = "condition", f"Condition evaluated to {condition}."
+            expression = ast.unparse(node.test)
+            branch = "the if branch" if condition else "the else branch"
+            event, explanation = "condition", f"Condition `{expression}` evaluated to {condition}; execution follows {branch}."
             self._record(node, event, explanation)
             self._exec_block(node.body if condition else node.orelse)
             return
@@ -180,7 +192,7 @@ class ControlledInterpreter:
             while bool(self._eval(node.test)):
                 self._tick()
                 iteration += 1
-                self._record(node, "condition", f"While condition is true (iteration {iteration}).")
+                self._record(node, "condition", f"Condition `{ast.unparse(node.test)}` evaluated to True; while-loop iteration {iteration} runs.")
                 try:
                     self._exec_block(node.body)
                 except _ContinueSignal:
@@ -188,11 +200,11 @@ class ControlledInterpreter:
                 except _BreakSignal:
                     break
             else:
-                self._record(node, "condition", "While condition is false; loop finished.")
+                self._record(node, "condition", f"Condition `{ast.unparse(node.test)}` evaluated to False; the while-loop finished.")
             return
         elif isinstance(node, ast.Return):
             value = self._eval(node.value) if node.value else None
-            self._record(node, "return", "Returned from the current method.")
+            self._record(node, "return", f"Returned {self._describe_value(value)} from the current method.")
             raise _ReturnSignal(value)
         elif isinstance(node, ast.Break):
             raise _BreakSignal()
@@ -222,14 +234,21 @@ class ControlledInterpreter:
 
     def _assign(self, target: ast.expr, value: Any) -> None:
         if isinstance(target, ast.Name):
+            previous = self._locals().get(target.id, _MISSING)
             self._locals()[target.id] = value
+            self._pending_explanation = f"Variable `{target.id}` changed from {self._describe_value(previous)} to {self._describe_value(value)}."
         elif isinstance(target, ast.Attribute):
             owner = self._eval(target.value)
             if not isinstance(owner, _Instance):
                 raise RuntimeError("Only supported object fields can be assigned.")
             if target.attr.startswith("__"):
                 raise RuntimeError("Dunder attributes are not supported.")
+            previous = owner.attrs.get(target.attr, _MISSING)
             owner.attrs[target.attr] = value
+            self._pending_explanation = (
+                f"{owner.class_name} #{owner.identity}'s `{target.attr}` changed from "
+                f"{self._describe_value(previous)} to {self._describe_value(value)}."
+            )
         elif isinstance(target, (ast.Tuple, ast.List)):
             if not isinstance(value, (tuple, list)) or len(value) != len(target.elts):
                 raise RuntimeError("Unpacking assignment shape mismatch.")
@@ -409,6 +428,13 @@ class ControlledInterpreter:
             return f"<{value.class_name} #{value.identity}>"
         return value
 
+    def _describe_value(self, value: Any) -> str:
+        if value is _MISSING:
+            return "not set"
+        if isinstance(value, _Instance):
+            return f"{value.class_name} #{value.identity}"
+        return repr(value)
+
     def _serialize_value(self, value: Any) -> Any:
         if isinstance(value, _Instance):
             return {"ref": value.identity, "class": value.class_name}
@@ -459,24 +485,12 @@ class ControlledInterpreter:
             "end_line": getattr(node, "end_lineno", getattr(node, "lineno", 1)) if node is not None else 1,
             "end_column": getattr(node, "end_col_offset", getattr(node, "col_offset", 0)) + 1 if node is not None else 1,
         }
-        blueprint = {}
-        if self.tree is not None:
-            for class_node in self.tree.body:
-                if not isinstance(class_node, ast.ClassDef):
-                    continue
-                attributes = sorted({sub.attr for sub in ast.walk(class_node)
-                                     if isinstance(sub, ast.Attribute)
-                                     and isinstance(sub.value, ast.Name)
-                                     and sub.value.id == "self"})
-                methods = [item.name for item in class_node.body if isinstance(item, ast.FunctionDef)]
-                blueprint[class_node.name] = {"attributes": attributes, "methods": methods}
         return {
             "step_index": len(self.snapshots), "source": source, "event_type": event_type,
             "nodes": nodes, "next_refs": {str(item["id"]): item["next"] for item in nodes},
             "head_ref": head_ref, "variables": variables, "explanation": explanation,
             "program_output": list(self.output), "status": self.status,
             "traversed_node_ref": self._traversed_node_ref,
-            "blueprint": blueprint,
         }
 
     def _node_reference_from_print(self, call: ast.Call) -> int | None:

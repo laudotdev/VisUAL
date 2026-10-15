@@ -65,14 +65,6 @@ class VisualizerPanel(QWidget):
         nav.addWidget(self.end_button)
         root.addLayout(nav)
 
-        blueprint_group = QGroupBox("Class Blueprint")
-        blueprint_layout = QVBoxLayout(blueprint_group)
-        self.blueprint = QPlainTextEdit()
-        self.blueprint.setReadOnly(True)
-        self.blueprint.setMaximumHeight(105)
-        blueprint_layout.addWidget(self.blueprint)
-        root.addWidget(blueprint_group)
-
         explanation_group = QGroupBox("Step explanation")
         explanation_layout = QVBoxLayout(explanation_group)
         self.explanation = QLabel("No trace loaded.")
@@ -142,7 +134,6 @@ class VisualizerPanel(QWidget):
             self.diagram.set_snapshot({})
             self.explanation.setText("No trace was produced.")
             self.variables.clear()
-            self.blueprint.setPlainText("No execution trace is available.")
             return
         snapshot = self.snapshots[self.current_index]
         source = snapshot.get("source", {})
@@ -150,7 +141,6 @@ class VisualizerPanel(QWidget):
             int(source.get("line", 1)), int(source.get("column", 1))
         )
         self.diagram.set_snapshot(snapshot)
-        self.blueprint.setPlainText(self._format_blueprint(snapshot.get("blueprint", {})))
         self.explanation.setText(f"{snapshot.get('event_type', 'step')}: {snapshot.get('explanation', '')}")
         self.variables.setPlainText("\n".join(
             f"{name} = {format_variable_value(value)}"
@@ -159,14 +149,3 @@ class VisualizerPanel(QWidget):
         self.program_output_view.setPlainText("\n".join(
             snapshot.get("program_output", self.program_output)
         ) or "(no output yet)")
-
-    @staticmethod
-    def _format_blueprint(blueprint: dict) -> str:
-        if not blueprint:
-            return "Class definitions have not been recorded yet."
-        sections = []
-        for name, details in blueprint.items():
-            attributes = ", ".join(details.get("attributes", [])) or "(none yet)"
-            methods = ", ".join(details.get("methods", [])) or "(none)"
-            sections.append(f"{name}\n  attributes: {attributes}\n  methods: {methods}")
-        return "\n\n".join(sections)

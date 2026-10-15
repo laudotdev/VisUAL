@@ -48,16 +48,30 @@ class VisualizerPanel(QWidget):
         root.addWidget(scroll, 3)
 
         nav = QHBoxLayout()
+        self.start_button = QPushButton("|< Start")
         self.previous_button = QPushButton("← Previous")
         self.next_button = QPushButton("Next →")
+        self.end_button = QPushButton("End >|")
         self.step_label = QLabel("Step 0 / 0")
         self.step_label.setAlignment(Qt.AlignCenter)
+        self.start_button.clicked.connect(self.start_step)
         self.previous_button.clicked.connect(self.previous_step)
         self.next_button.clicked.connect(self.next_step)
+        self.end_button.clicked.connect(self.end_step)
+        nav.addWidget(self.start_button)
         nav.addWidget(self.previous_button)
         nav.addWidget(self.step_label, 1)
         nav.addWidget(self.next_button)
+        nav.addWidget(self.end_button)
         root.addLayout(nav)
+
+        blueprint_group = QGroupBox("Class Blueprint")
+        blueprint_layout = QVBoxLayout(blueprint_group)
+        self.blueprint = QPlainTextEdit()
+        self.blueprint.setReadOnly(True)
+        self.blueprint.setMaximumHeight(105)
+        blueprint_layout.addWidget(self.blueprint)
+        root.addWidget(blueprint_group)
 
         explanation_group = QGroupBox("Step explanation")
         explanation_layout = QVBoxLayout(explanation_group)
@@ -101,9 +115,19 @@ class VisualizerPanel(QWidget):
             self.current_index -= 1
             self._render_step()
 
+    def start_step(self):
+        if self.snapshots and self.current_index != 0:
+            self.current_index = 0
+            self._render_step()
+
     def next_step(self):
         if self.current_index < len(self.snapshots) - 1:
             self.current_index += 1
+            self._render_step()
+
+    def end_step(self):
+        if self.snapshots and self.current_index != len(self.snapshots) - 1:
+            self.current_index = len(self.snapshots) - 1
             self._render_step()
 
     def _render_step(self):
@@ -111,11 +135,14 @@ class VisualizerPanel(QWidget):
         has_trace = total > 0
         self.previous_button.setEnabled(has_trace and self.current_index > 0)
         self.next_button.setEnabled(has_trace and self.current_index < total - 1)
+        self.start_button.setEnabled(has_trace and self.current_index > 0)
+        self.end_button.setEnabled(has_trace and self.current_index < total - 1)
         self.step_label.setText(f"Step {self.current_index + 1 if has_trace else 0} / {total}")
         if not has_trace:
             self.diagram.set_snapshot({})
             self.explanation.setText("No trace was produced.")
             self.variables.clear()
+            self.blueprint.setPlainText("No execution trace is available.")
             return
         snapshot = self.snapshots[self.current_index]
         source = snapshot.get("source", {})
@@ -123,6 +150,7 @@ class VisualizerPanel(QWidget):
             int(source.get("line", 1)), int(source.get("column", 1))
         )
         self.diagram.set_snapshot(snapshot)
+        self.blueprint.setPlainText(self._format_blueprint(snapshot.get("blueprint", {})))
         self.explanation.setText(f"{snapshot.get('event_type', 'step')}: {snapshot.get('explanation', '')}")
         self.variables.setPlainText("\n".join(
             f"{name} = {format_variable_value(value)}"
@@ -131,3 +159,14 @@ class VisualizerPanel(QWidget):
         self.program_output_view.setPlainText("\n".join(
             snapshot.get("program_output", self.program_output)
         ) or "(no output yet)")
+
+    @staticmethod
+    def _format_blueprint(blueprint: dict) -> str:
+        if not blueprint:
+            return "Class definitions have not been recorded yet."
+        sections = []
+        for name, details in blueprint.items():
+            attributes = ", ".join(details.get("attributes", [])) or "(none yet)"
+            methods = ", ".join(details.get("methods", [])) or "(none)"
+            sections.append(f"{name}\n  attributes: {attributes}\n  methods: {methods}")
+        return "\n\n".join(sections)

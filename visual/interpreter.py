@@ -459,12 +459,24 @@ class ControlledInterpreter:
             "end_line": getattr(node, "end_lineno", getattr(node, "lineno", 1)) if node is not None else 1,
             "end_column": getattr(node, "end_col_offset", getattr(node, "col_offset", 0)) + 1 if node is not None else 1,
         }
+        blueprint = {}
+        if self.tree is not None:
+            for class_node in self.tree.body:
+                if not isinstance(class_node, ast.ClassDef):
+                    continue
+                attributes = sorted({sub.attr for sub in ast.walk(class_node)
+                                     if isinstance(sub, ast.Attribute)
+                                     and isinstance(sub.value, ast.Name)
+                                     and sub.value.id == "self"})
+                methods = [item.name for item in class_node.body if isinstance(item, ast.FunctionDef)]
+                blueprint[class_node.name] = {"attributes": attributes, "methods": methods}
         return {
             "step_index": len(self.snapshots), "source": source, "event_type": event_type,
             "nodes": nodes, "next_refs": {str(item["id"]): item["next"] for item in nodes},
             "head_ref": head_ref, "variables": variables, "explanation": explanation,
             "program_output": list(self.output), "status": self.status,
             "traversed_node_ref": self._traversed_node_ref,
+            "blueprint": blueprint,
         }
 
     def _node_reference_from_print(self, call: ast.Call) -> int | None:

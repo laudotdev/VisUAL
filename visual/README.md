@@ -16,6 +16,8 @@ VisUAL uses explainable AST-based signals before validation. `from dsa import Li
 
 Normal Run File remains independent of VisUAL. Because `dsa` is an optional teaching-module dependency, normal runs provide a compatibility module for that import; user-defined linked-list classes can therefore run without a `ModuleNotFoundError`. Programs that do not use the import continue to run normally.
 
+The VisUAL panel also includes a trace-backed Class Blueprint showing the attributes and methods found in the user's actual `Node` and `LinkedList` classes. Start/End controls jump across recorded snapshots without re-executing the program. The blueprint and diagram are presentation views of immutable trace data.
+
 ## Tests
 
 From the repository root:

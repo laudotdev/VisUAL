@@ -1265,6 +1265,11 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, APP_NAME, "A program is already running.")
             return
 
+        # Switching back to normal execution closes a completed VisUAL view.
+        # The trace remains available only while the visualization mode is active.
+        if self._visualizer_requested_visible:
+            self._hide_visualizer()
+
         # the file has to exist on disk before we can run it as a file,
         # so save first (prompting for a location if it's a new file).
         if self._current_file_path is None or self.editor.document().isModified():
@@ -1376,6 +1381,11 @@ class MainWindow(QMainWindow):
         self._visual_source_text = source
         self._visual_stdout.clear()
         self._visual_stderr.clear()
+        self.output_panel.clear()
+        self.output_panel.stop_input()
+        self._output_line_tail = ""
+        self._show_bottom_panel("output")
+        self._append_output("Running on visualization.\n")
         process = QProcess(self)
         self._visual_process = process
         process.setWorkingDirectory(str(Path(__file__).resolve().parents[1]))

@@ -64,9 +64,6 @@ class VisualizerPanel(QWidget):
         self.explanation.setWordWrap(True)
         self.explanation.setTextInteractionFlags(Qt.TextSelectableByMouse)
         explanation_layout.addWidget(self.explanation)
-        self.source_button = QPushButton("Go to source line")
-        self.source_button.clicked.connect(self._go_to_source)
-        explanation_layout.addWidget(self.source_button, alignment=Qt.AlignLeft)
         root.addWidget(explanation_group)
 
         bottom = QHBoxLayout()
@@ -113,7 +110,6 @@ class VisualizerPanel(QWidget):
         has_trace = total > 0
         self.previous_button.setEnabled(has_trace and self.current_index > 0)
         self.next_button.setEnabled(has_trace and self.current_index < total - 1)
-        self.source_button.setEnabled(has_trace)
         self.step_label.setText(f"Step {self.current_index + 1 if has_trace else 0} / {total}")
         if not has_trace:
             self.diagram.set_snapshot({})
@@ -121,6 +117,10 @@ class VisualizerPanel(QWidget):
             self.variables.clear()
             return
         snapshot = self.snapshots[self.current_index]
+        source = snapshot.get("source", {})
+        self.source_requested.emit(
+            int(source.get("line", 1)), int(source.get("column", 1))
+        )
         self.diagram.set_snapshot(snapshot)
         self.explanation.setText(f"{snapshot.get('event_type', 'step')}: {snapshot.get('explanation', '')}")
         self.variables.setPlainText("\n".join(
@@ -129,9 +129,3 @@ class VisualizerPanel(QWidget):
         self.program_output_view.setPlainText("\n".join(
             snapshot.get("program_output", self.program_output)
         ) or "(no output yet)")
-
-    def _go_to_source(self):
-        if not self.snapshots:
-            return
-        source = self.snapshots[self.current_index].get("source", {})
-        self.source_requested.emit(int(source.get("line", 1)), int(source.get("column", 1)))

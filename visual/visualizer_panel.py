@@ -1,6 +1,9 @@
 """VisUAL step-through panel, separate from the IDE Output and Terminal."""
 from __future__ import annotations
 
+from html import escape
+import re
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit,
@@ -9,6 +12,7 @@ from PySide6.QtWidgets import (
 
 from .linked_list_view import LinkedListView
 from .presentation import format_variable_value
+from ui.panel_icons import ICON_SIZE, panel_icon
 
 
 class VisualizerPanel(QWidget):
@@ -22,6 +26,13 @@ class VisualizerPanel(QWidget):
         self.current_index = 0
         self._build_ui()
 
+    @staticmethod
+    def _explanation_html(event_type: str, explanation: str) -> str:
+        """Render trace prose as readable rich text, including inline code."""
+        text = escape(f"{event_type}: {explanation}")
+        text = re.sub(r"`([^`]+)`", r'<span style="color:#8be9fd; font-weight:800">\1</span>', text)
+        return text.replace("\n", "<br>")
+
     def _build_ui(self):
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -32,7 +43,10 @@ class VisualizerPanel(QWidget):
         title.setStyleSheet("font-size: 15px; font-weight: 600;")
         top.addWidget(title)
         top.addStretch()
-        self.close_button = QPushButton("Hide")
+        self.close_button = QPushButton()
+        self.close_button.setIcon(panel_icon("close"))
+        self.close_button.setIconSize(ICON_SIZE)
+        self.close_button.setToolTip("Close VisUAL")
         self.close_button.clicked.connect(self.close_requested.emit)
         top.addWidget(self.close_button)
         root.addLayout(top)
@@ -48,10 +62,16 @@ class VisualizerPanel(QWidget):
         root.addWidget(scroll, 3)
 
         nav = QHBoxLayout()
-        self.start_button = QPushButton("|< Start")
+        self.start_button = QPushButton()
+        self.start_button.setIcon(panel_icon("first"))
+        self.start_button.setIconSize(ICON_SIZE)
+        self.start_button.setToolTip("Jump to first step")
         self.previous_button = QPushButton("← Previous")
         self.next_button = QPushButton("Next →")
-        self.end_button = QPushButton("End >|")
+        self.end_button = QPushButton()
+        self.end_button.setIcon(panel_icon("last"))
+        self.end_button.setIconSize(ICON_SIZE)
+        self.end_button.setToolTip("Jump to last step")
         self.step_label = QLabel("Step 0 / 0")
         self.step_label.setAlignment(Qt.AlignCenter)
         self.start_button.clicked.connect(self.start_step)
@@ -90,6 +110,13 @@ class VisualizerPanel(QWidget):
         bottom.addWidget(output_group, 1)
         root.addLayout(bottom)
         self.setMinimumWidth(340)
+        self.setStyleSheet("""
+            QWidget { font-family: 'Inter', 'Segoe UI', sans-serif; font-weight: 700; }
+            QLabel { font-size: 11px; }
+            QGroupBox { font-size: 12px; font-weight: 800; }
+            QPushButton { font-size: 11px; font-weight: 800; padding: 5px 8px; }
+            QPlainTextEdit { font-family: 'JetBrains Mono', 'Cascadia Mono', monospace; font-weight: 700; font-size: 10px; }
+        """)
 
     def load_trace(self, snapshots: list[dict], output: list[str], status: str, error: str | None = None):
         self.snapshots = snapshots or []
@@ -141,7 +168,9 @@ class VisualizerPanel(QWidget):
             int(source.get("line", 1)), int(source.get("column", 1))
         )
         self.diagram.set_snapshot(snapshot)
-        self.explanation.setText(f"{snapshot.get('event_type', 'step')}: {snapshot.get('explanation', '')}")
+        self.explanation.setText(self._explanation_html(
+            snapshot.get("event_type", "step"), snapshot.get("explanation", "")
+        ))
         self.variables.setPlainText("\n".join(
             f"{name} = {format_variable_value(value)}"
             for name, value in snapshot.get("variables", {}).items()

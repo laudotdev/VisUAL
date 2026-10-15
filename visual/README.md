@@ -10,6 +10,10 @@ Supported constructs include simple class/method definitions, local and supporte
 
 This is a deliberately controlled subset, not a general-purpose Python visualizer or a universal security sandbox. A trace is generated only when the analyzer accepts the complete source.
 
+## Intent detection
+
+VisUAL uses explainable AST-based signals before validation. `from dsa import LinkedList` is only a weak hint and never opens VisUAL by itself. Strong intent requires a conventional `Node` (`data` and `next`), a conventional `LinkedList` (`head`), and actual list construction. Node/list definitions without meaningful use are reported as possible intent. The analyzer also reports evidence and diagnostics separately, so strong intent cannot bypass the controlled-subset validator. The specific `dsa` hint import is accepted as a non-executing import; other imports remain unsupported.
+
 ## Tests
 
 From the repository root:

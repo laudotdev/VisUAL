@@ -1355,8 +1355,17 @@ class MainWindow(QMainWindow):
             ) or "No supported linked-list implementation was detected."
             box = QMessageBox(self)
             box.setWindowTitle("VisUAL cannot visualize this program")
-            box.setText("VisUAL supports conventional Node + LinkedList programs in a controlled Python subset.")
-            box.setInformativeText(detail)
+            if analysis.intent_level == "none":
+                heading = "No supported linked-list program was detected."
+            elif analysis.intent_level == "possible":
+                heading = "Possible linked-list intent was detected, but the evidence is incomplete."
+            else:
+                heading = "Linked-list intent was detected, but this program is outside VisUAL's supported subset."
+            box.setText(heading)
+            if analysis.evidence:
+                box.setInformativeText("Evidence:\n" + "\n".join(analysis.evidence) + "\n\nDiagnostics:\n" + detail)
+            else:
+                box.setInformativeText(detail)
             run_normal = box.addButton("Run Normal", QMessageBox.AcceptRole)
             box.addButton("Cancel", QMessageBox.RejectRole)
             box.exec()

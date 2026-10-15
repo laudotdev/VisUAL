@@ -25,6 +25,14 @@ class AnalysisResult:
     node_class: str | None = None
     list_class: str | None = None
     diagnostics: list[Diagnostic] = field(default_factory=list)
+    intent_level: str = "none"
+    score: int = 0
+    signals: list[str] = field(default_factory=list)
+    evidence: list[str] = field(default_factory=list)
+
+    @property
+    def is_supported(self) -> bool:
+        return self.supported
 
 
 _ALLOWED_STMTS = (
@@ -60,6 +68,10 @@ class _Validator(ast.NodeVisitor):
         ))
 
     def generic_visit(self, node: ast.AST) -> None:
+        if isinstance(node, ast.ImportFrom) and node.module == "dsa" and any(
+            alias.name == "LinkedList" for alias in node.names
+        ):
+            return
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             self._add(node, "Imports are not supported by VisUAL's controlled interpreter.")
             return
@@ -123,6 +135,74 @@ class _Validator(ast.NodeVisitor):
             self.visit(item)
 
 
+def _intent(tree: ast.Module) -> tuple[str, int, list[str], list[str], str | None, str | None]:
+    """Return explainable intent evidence without executing the source."""
+    signals: list[str] = []
+    evidence: list[str] = []
+    score = 0
+    imports = [node for node in tree.body if isinstance(node, ast.ImportFrom)
+               and node.module == "dsa" and any(alias.name == "LinkedList" for alias in node.names)]
+    if imports:
+        score += 1
+        signals.append("dsa LinkedList import")
+        evidence.append(f"Line {imports[0].lineno}: imports LinkedList from dsa (intent hint only).")
+
+    classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
+    node_cls = classes.get("Node")
+    list_cls = classes.get("LinkedList")
+    node_fields: set[str] = set()
+    list_fields: set[str] = set()
+    for cls, fields in ((node_cls, node_fields), (list_cls, list_fields)):
+        if cls:
+            for item in cls.body:
+                for sub in ast.walk(item):
+                    if isinstance(sub, ast.Attribute) and isinstance(sub.value, ast.Name) and sub.value.id == "self":
+                        fields.add(sub.attr)
+    if node_cls and {"data", "next"}.issubset(node_fields):
+        score += 3
+        signals.append("conventional Node structure")
+        evidence.append(f"Line {node_cls.lineno}: Node defines data and next fields.")
+    elif node_cls:
+        score += 1
+        signals.append("Node class")
+        evidence.append(f"Line {node_cls.lineno}: Node class found, but its fields are incomplete.")
+    if list_cls and "head" in list_fields:
+        score += 3
+        signals.append("conventional LinkedList structure")
+        evidence.append(f"Line {list_cls.lineno}: LinkedList defines a head field.")
+    elif list_cls:
+        score += 1
+        signals.append("LinkedList class")
+        evidence.append(f"Line {list_cls.lineno}: LinkedList class found, but head is not clear.")
+
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
+    list_constructed = any(isinstance(node.func, ast.Name) and node.func.id == "LinkedList" for node in calls)
+    node_constructed = any(isinstance(node.func, ast.Name) and node.func.id == "Node" for node in calls)
+    linked_attrs = [node for node in ast.walk(tree) if isinstance(node, ast.Attribute) and node.attr in {"head", "data", "next"}]
+    if list_constructed:
+        score += 3
+        signals.append("LinkedList instantiated and used")
+        evidence.append("The program constructs a LinkedList instance.")
+    if node_constructed:
+        score += 1
+        signals.append("Node instantiated")
+    if linked_attrs:
+        score += 1
+        signals.append("linked fields are read or modified")
+        evidence.append("The program reads or modifies head, data, or next.")
+    if list_cls and imports and any(isinstance(node, ast.ClassDef) and node.name == "LinkedList" for node in tree.body):
+        signals.append("import shadowed by user-defined LinkedList")
+        evidence.append("The dsa import is shadowed by a user-defined LinkedList class.")
+
+    if list_constructed and (node_cls and {"data", "next"}.issubset(node_fields)) and (list_cls and "head" in list_fields):
+        level = "strong"
+    elif score > 1 or (score == 1 and not imports):
+        level = "possible"
+    else:
+        level = "none"
+    return level, score, signals, evidence, node_cls.name if node_cls else None, list_cls.name if list_cls else None
+
+
 def analyze_source(source: str) -> AnalysisResult:
     """Parse, detect, and validate a conventional Node + LinkedList program."""
     try:
@@ -132,9 +212,17 @@ def analyze_source(source: str) -> AnalysisResult:
             f"Python syntax error: {exc.msg}", exc.lineno or 1, exc.offset or 1, "visual.syntax"
         )])
 
+    level, score, signals, evidence, detected_node, detected_list = _intent(tree)
+
+    def result(supported: bool, diagnostics: list[Diagnostic] | None = None) -> AnalysisResult:
+        return AnalysisResult(
+            supported, detected_node, detected_list, diagnostics or [],
+            level, score, signals, evidence,
+        )
+
     classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
     if "Node" not in classes or "LinkedList" not in classes:
-        return AnalysisResult(False, diagnostics=[Diagnostic(
+        return result(False, [Diagnostic(
             "VisUAL expects conventional top-level classes named Node and LinkedList.", 1, 1,
             "visual.pattern"
         )])
@@ -149,12 +237,12 @@ def analyze_source(source: str) -> AnalysisResult:
                 if isinstance(sub, ast.Attribute) and isinstance(sub.value, ast.Name) and sub.value.id == "self":
                     fields.add(sub.attr)
     if not {"data", "next"}.issubset(node_fields):
-        return AnalysisResult(False, diagnostics=[Diagnostic(
+        return result(False, [Diagnostic(
             "Node must define conventional self.data and self.next fields.", node_class.lineno, 1,
             "visual.pattern"
         )])
     if "head" not in list_fields:
-        return AnalysisResult(False, diagnostics=[Diagnostic(
+        return result(False, [Diagnostic(
             "LinkedList must define a conventional self.head field.", list_class.lineno, 1,
             "visual.pattern"
         )])
@@ -203,7 +291,7 @@ def analyze_source(source: str) -> AnalysisResult:
             if key not in seen:
                 unique.append(diagnostic)
                 seen.add(key)
-        return AnalysisResult(False, "Node", "LinkedList", unique[:30])
+        return result(False, unique[:30])
 
     # Only accept source that actually creates/uses a LinkedList instance.
     uses_list = any(
@@ -211,9 +299,9 @@ def analyze_source(source: str) -> AnalysisResult:
         for node in ast.walk(tree)
     )
     if not uses_list:
-        return AnalysisResult(False, "Node", "LinkedList", [Diagnostic(
+        return result(False, [Diagnostic(
             "The program defines linked-list classes but does not create a LinkedList instance.",
             list_class.lineno, 1, "visual.no_instance"
         )])
 
-    return AnalysisResult(True, "Node", "LinkedList", [])
+    return result(True)

@@ -38,15 +38,21 @@ class PythonRunner(QObject):
         self._process.readyReadStandardOutput.connect(self._handle_output)
         self._process.finished.connect(self._handle_finished)
 
-        # sys.executable is the interpreter currently running PyDE
-        # itself — using it means "run with the same Python PyDE uses".
-        # self._process.start(sys.executable, [file_path])
-        
         # changed this if-else block on october 1, 2026 arch linux
         if getattr(sys, "frozen", False) and sys.platform == "win32":
             self._process.start("py", [file_path])
         else:
-            self._process.start(sys.executable, [file_path])
+            # The optional dsa teaching module is not installed with Lau-PyDE.
+            # Supply its name for normal runs so user-defined implementations
+            # do not fail before their own class definitions are reached.
+            bootstrap = (
+                "import runpy, sys, types; "
+                "m=types.ModuleType('dsa'); "
+                "m.LinkedList=type('LinkedList', (), {}); "
+                "sys.modules.setdefault('dsa', m); "
+                f"runpy.run_path({file_path!r}, run_name='__main__')"
+            )
+            self._process.start(sys.executable, ["-c", bootstrap])
 
     def stop(self) -> None:
         """Stop the currently running process, if any."""

@@ -203,7 +203,7 @@ def _intent(tree: ast.Module) -> tuple[str, int, list[str], list[str], str | Non
     return level, score, signals, evidence, node_cls.name if node_cls else None, list_cls.name if list_cls else None
 
 
-def analyze_source(source: str) -> AnalysisResult:
+def analyze_source(source: str, *, require_dsa_import: bool = True) -> AnalysisResult:
     """Parse, detect, and validate a conventional Node + LinkedList program."""
     try:
         tree = ast.parse(source)
@@ -302,6 +302,17 @@ def analyze_source(source: str) -> AnalysisResult:
         return result(False, [Diagnostic(
             "The program defines linked-list classes but does not create a LinkedList instance.",
             list_class.lineno, 1, "visual.no_instance"
+        )])
+
+    if require_dsa_import and not any(
+        isinstance(item, ast.ImportFrom)
+        and item.module == "dsa"
+        and any(alias.name == "LinkedList" for alias in item.names)
+        for item in tree.body
+    ):
+        return result(False, [Diagnostic(
+            "VisUAL linked-list programs must import LinkedList from dsa.",
+            list_class.lineno, 1, "visual.missing_dsa_import"
         )])
 
     return result(True)

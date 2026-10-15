@@ -81,7 +81,10 @@ class ControlledInterpreter:
     def run(self, source: str) -> ExecutionResult:
         self._reset()
         self.source = source
-        analysis = analyze_source(source)
+        # The UI requires the dsa import before launching VisUAL. Keeping the
+        # interpreter permissive preserves direct interpreter/test usage for
+        # structural linked-list programs.
+        analysis = analyze_source(source, require_dsa_import=False)
         if not analysis.supported:
             message = "\n".join(
                 f"Line {item.line}, column {item.column}: {item.message}"
@@ -99,6 +102,12 @@ class ControlledInterpreter:
                     self._record(item, "class_definition", f"Defined class {item.name}.")
                 elif isinstance(item, ast.FunctionDef):
                     self.globals[item.name] = item
+                elif isinstance(item, ast.ImportFrom) and item.module == "dsa" and any(
+                    alias.name == "LinkedList" for alias in item.names
+                ):
+                    # The import is an intent marker; the controlled
+                    # interpreter uses the user's own LinkedList definition.
+                    continue
                 else:
                     self._exec_stmt(item)
             self.status = "completed"

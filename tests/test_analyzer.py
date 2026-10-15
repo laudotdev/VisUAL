@@ -3,6 +3,8 @@ import pytest
 from visual.analyzer import analyze_source
 
 VALID = '''
+from dsa import LinkedList
+
 class Node:
     def __init__(self, data):
         self.data = data
@@ -91,11 +93,11 @@ def test_node_alone_is_only_possible_intent():
     assert result.intent_level == "possible"
 
 
-def test_structural_usage_without_import_is_strong():
-    result = analyze_source(VALID)
+def test_structural_usage_without_import_requires_dsa_import():
+    result = analyze_source(VALID.replace("from dsa import LinkedList\n\n", ""))
     assert result.intent_level == "strong"
-    assert result.signals
-    assert result.evidence
+    assert not result.supported
+    assert any(item.code == "visual.missing_dsa_import" for item in result.diagnostics)
 
 
 def test_dsa_import_is_hint_not_trigger():

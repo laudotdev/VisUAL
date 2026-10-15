@@ -12,7 +12,9 @@ This is a deliberately controlled subset, not a general-purpose Python visualize
 
 ## Intent detection
 
-VisUAL uses explainable AST-based signals before validation. `from dsa import LinkedList` is only a weak hint and never opens VisUAL by itself. Strong intent requires a conventional `Node` (`data` and `next`), a conventional `LinkedList` (`head`), and actual list construction. Node/list definitions without meaningful use are reported as possible intent. The analyzer also reports evidence and diagnostics separately, so strong intent cannot bypass the controlled-subset validator. The specific `dsa` hint import is accepted as a non-executing import; other imports remain unsupported.
+VisUAL uses explainable AST-based signals before validation. `from dsa import LinkedList` is required for VisUAL, but never opens it by itself. Strong intent also requires a conventional `Node` (`data` and `next`), a conventional `LinkedList` (`head`), and actual list construction. Node/list definitions without meaningful use are reported as possible intent. The analyzer also reports evidence and diagnostics separately, so strong intent cannot bypass the controlled-subset validator. The specific `dsa` import is accepted as a non-executing marker by VisUAL; other imports remain unsupported.
+
+Normal Run File remains independent of VisUAL. Because `dsa` is an optional teaching-module dependency, normal runs provide a compatibility module for that import; user-defined linked-list classes can therefore run without a `ModuleNotFoundError`. Programs that do not use the import continue to run normally.
 
 ## Tests
 

@@ -26,8 +26,10 @@ build/
 dist/
 *.egg-info/
 
-pasted-text.txt
-requirements-dev.txt
+# Local files
+/pasted-text.txt
+/requirements-dev.txt
+/visual/
 
-/visual
-README.md
+# Documentation
+/README.md

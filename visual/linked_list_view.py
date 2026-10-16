@@ -59,7 +59,7 @@ class LinkedListView(QWidget):
         count = len(self._snapshot.get("nodes", []))
         if count == 0:
             return 190
-        node_w, node_h, gap_x, gap_y, margin_x, margin_y = 148, 62, 44, 48, 20, 48
+        node_w, node_h, gap_x, gap_y, margin_x, margin_y = 155, 90, 44, 48, 20, 48
         usable = max(1, width - 2 * margin_x)
         per_row = max(1, (usable + gap_x) // (node_w + gap_x))
         rows = (count + per_row - 1) // per_row
@@ -122,13 +122,20 @@ class LinkedListView(QWidget):
             painter.drawRoundedRect(rect, 7, 7)
             split_x = rect.left() + rect.width() * 0.66
             painter.drawLine(int(split_x), int(rect.top()), int(split_x), int(rect.bottom()))
+
+            left_width = split_x - rect.left() - 8
+            value_top = rect.top() + 5
+            object_top = rect.top() + 30
+
             painter.setPen(QColor("#f1f3f4"))
             painter.setFont(QFont("Sans Serif", 10, QFont.Bold))
-            painter.drawText(QRectF(rect.left() + 4, rect.top() + 5, split_x - rect.left() - 8, 24), Qt.AlignCenter, str(node_display_data(node)))
+            painter.drawText(QRectF(rect.left() + 4, value_top, left_width, 20), Qt.AlignCenter, str(node_display_data(node)))
+
             painter.setFont(QFont("Sans Serif", 8))
             painter.setPen(QColor("#b8c7db"))
-            label = f"{node_rank_label(node_rank[node['id']])} \n Object #{node['id']}"
-            painter.drawText(QRectF(rect.left() + 4, rect.top() + 31, split_x - rect.left() - 8, 20), Qt.AlignCenter, label)
+            painter.drawText(QRectF(rect.left() + 4, object_top, left_width, 16), Qt.AlignCenter, f"{node_rank_label(node_rank[node['id']])}")
+            painter.drawText(QRectF(rect.left() + 4, object_top + 14, left_width, 14), Qt.AlignCenter, f"Object #{node['id']}")
+
             painter.setPen(QColor("#c7d6e8"))
             painter.drawText(QRectF(split_x + 2, rect.top() + 5, rect.right() - split_x - 4, rect.height() - 10), Qt.AlignCenter, "next")
 

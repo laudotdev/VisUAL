@@ -120,7 +120,7 @@ class LinkedListView(QWidget):
             painter.setPen(QPen(QColor("#66bb6a" if is_traversed else "#78a9ff"), 2 if is_traversed else 1.5))
             painter.setBrush(QBrush(QColor("#315c38" if is_traversed else "#29384d")))
             painter.drawRoundedRect(rect, 7, 7)
-            split_x = rect.left() + rect.width() * 0.66
+            split_x = rect.left() + rect.width() * 0.66     
             painter.drawLine(int(split_x), int(rect.top()), int(split_x), int(rect.bottom()))
 
             left_width = split_x - rect.left() - 8

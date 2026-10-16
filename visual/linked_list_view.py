@@ -6,6 +6,42 @@ from PySide6.QtGui import QColor, QPainter, QPen, QBrush, QFont
 from PySide6.QtWidgets import QWidget
 
 
+def reachable_node_positions(snapshot: dict) -> tuple[list[dict], dict[int, int], bool]:
+    """Derive presentation positions from the current head/next chain."""
+    raw_nodes = snapshot.get("nodes")
+    if not isinstance(raw_nodes, list):
+        return [], {}, False
+    by_id = {
+        node.get("id"): node for node in raw_nodes
+        if isinstance(node, dict) and isinstance(node.get("id"), int)
+    }
+    head = snapshot.get("head_ref")
+    if head is None:
+        return [], {}, False
+    ordered, positions, visited = [], {}, set()
+    current = head
+    cycle = False
+    while isinstance(current, int) and current in by_id:
+        if current in visited:
+            cycle = True
+            break
+        visited.add(current)
+        positions[current] = len(ordered) + 1
+        ordered.append(by_id[current])
+        current = by_id[current].get("next")
+    return ordered, positions, cycle
+
+
+def node_display_data(node: dict):
+    """Return only the trace's actual Node.data field for rendering."""
+    return node.get("data") if isinstance(node, dict) and "data" in node else None
+
+
+def node_rank_label(rank: int) -> str:
+    """Return a display label for a node based on its linked-list order."""
+    return f"Node {rank}"
+
+
 class LinkedListView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -40,35 +76,46 @@ class LinkedListView(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.fillRect(self.rect(), QColor("#202124"))
         width = max(1, self.width())
-        nodes = self._snapshot.get("nodes", [])
+        nodes, positions, cycle = reachable_node_positions(self._snapshot)
         head_ref = self._snapshot.get("head_ref")
         traversed_ref = self._snapshot.get("traversed_node_ref")
-        if not nodes:
+        if not self._snapshot:
             painter.setPen(QColor("#c5cbd3"))
-            painter.drawText(self.rect(), Qt.AlignCenter, "head  →  None\n\n(empty linked list)")
+            painter.drawText(self.rect(), Qt.AlignCenter, "No visualization snapshot available.")
+            return
+        if head_ref is None:
+            painter.setPen(QColor("#c5cbd3"))
+            painter.setFont(QFont("Sans Serif", 12, QFont.Bold))
+            painter.drawText(self.rect(), Qt.AlignCenter, "Empty Linked List\n\nhead  →  None\n\nNo nodes exist in this list yet.")
+            return
+        if not nodes:
+            painter.setPen(QColor("#f0b35b"))
+            painter.drawText(self.rect(), Qt.AlignCenter, "The head reference is unavailable in this snapshot.")
             return
 
         node_w, node_h, gap_x, gap_y = 148, 62, 44, 48
         margin_x, margin_y = 20, 48
         usable = max(1, width - 2 * margin_x)
         per_row = max(1, (usable + gap_x) // (node_w + gap_x))
-        positions = {}
+        rects = {}
+        node_rank = {}
         for i, node in enumerate(nodes):
             row, col = divmod(i, per_row)
             x = margin_x + col * (node_w + gap_x)
             y = margin_y + row * (node_h + gap_y)
-            positions[node["id"]] = QRectF(x, y, node_w, node_h)
+            rects[node["id"]] = QRectF(x, y, node_w, node_h)
+            node_rank[node["id"]] = i + 1
 
         # Head marker points to the first node when visible.
         first = nodes[0]
-        head_rect = positions[first["id"]]
+        head_rect = rects[first["id"]]
         painter.setPen(QPen(QColor("#80cbc4"), 2))
         painter.setFont(QFont("Sans Serif", 10, QFont.Bold))
         painter.drawText(int(head_rect.left()), int(head_rect.top() - 18), "HEAD")
         painter.drawLine(int(head_rect.left() + 2), int(head_rect.top() - 8), int(head_rect.left() + 2), int(head_rect.top()))
 
         for node in nodes:
-            rect = positions[node["id"]]
+            rect = rects[node["id"]]
             is_traversed = node["id"] == traversed_ref
             painter.setPen(QPen(QColor("#66bb6a" if is_traversed else "#78a9ff"), 2 if is_traversed else 1.5))
             painter.setBrush(QBrush(QColor("#315c38" if is_traversed else "#29384d")))
@@ -77,18 +124,19 @@ class LinkedListView(QWidget):
             painter.drawLine(int(split_x), int(rect.top()), int(split_x), int(rect.bottom()))
             painter.setPen(QColor("#f1f3f4"))
             painter.setFont(QFont("Sans Serif", 10, QFont.Bold))
-            painter.drawText(QRectF(rect.left() + 4, rect.top() + 5, split_x - rect.left() - 8, 24), Qt.AlignCenter, str(node.get("data")))
+            painter.drawText(QRectF(rect.left() + 4, rect.top() + 5, split_x - rect.left() - 8, 24), Qt.AlignCenter, str(node_display_data(node)))
             painter.setFont(QFont("Sans Serif", 8))
             painter.setPen(QColor("#b8c7db"))
-            painter.drawText(QRectF(rect.left() + 4, rect.top() + 31, split_x - rect.left() - 8, 20), Qt.AlignCenter, f"Node #{node['id']}")
+            label = f"{node_rank_label(node_rank[node['id']])} \n Object #{node['id']}"
+            painter.drawText(QRectF(rect.left() + 4, rect.top() + 31, split_x - rect.left() - 8, 20), Qt.AlignCenter, label)
             painter.setPen(QColor("#c7d6e8"))
             painter.drawText(QRectF(split_x + 2, rect.top() + 5, rect.right() - split_x - 4, rect.height() - 10), Qt.AlignCenter, "next")
 
         for node in nodes:
-            rect = positions[node["id"]]
+            rect = rects[node["id"]]
             next_id = node.get("next")
-            if next_id in positions:
-                target = positions[next_id]
+            if next_id in rects:
+                target = rects[next_id]
                 if target.top() == rect.top() and target.left() > rect.left():
                     start_x, start_y = rect.right(), rect.center().y()
                     end_x, end_y = target.left(), target.center().y()

@@ -192,3 +192,37 @@ def test_condition_explanation_identifies_expression_and_result():
     result = ControlledInterpreter().run(PROGRAM)
     condition = next(step for step in result.snapshots if step["event_type"] == "condition")
     assert "evaluated to" in condition["explanation"]
+
+
+def test_dsa_import_alias_preserves_local_linked_list_and_trace_data():
+    source = '''
+from dsa import LinkedList as DsaLinkedList
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+class LinkedList:
+    def __init__(self):
+        self.head = None
+    def insert_beginning(self, data):
+        new_node = Node(data)
+        new_node.next = self.head
+        self.head = new_node
+    def traverse(self):
+        current = self.head
+        while current is not None:
+            print(current.data)
+            current = current.next
+ll = LinkedList()
+ll.head = Node(12)
+ll.head.next = Node(14)
+ll.insert_beginning(13)
+ll.traverse()
+'''
+    result = ControlledInterpreter().run(source)
+    assert result.status == "completed", result.error
+    final = result.snapshots[-1]
+    assert result.output == ["13", "12", "14"]
+    assert [(node["id"], node["data"], node["next"]) for node in final["nodes"]] == [
+        (4, 13, 2), (2, 12, 3), (3, 14, None)
+    ]

@@ -253,6 +253,77 @@ node = Node(12)
     assert creation["nodes"][0]["data"] == 12
 
 
+
+def test_head_assignment_snapshot_keeps_list_identity_and_exposes_head_path():
+    result = ControlledInterpreter().run('''
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+class LinkedList:
+    def __init__(self):
+        self.head = None
+ll = LinkedList()
+ll.head = Node(12)
+''')
+    step = next(snapshot for snapshot in result.snapshots if snapshot["source"]["line"] == 10)
+
+    assert step["event_type"] == "link_change"
+    assert "head reference" in step["explanation"]
+    assert "ll" not in step["variable_explanations"]
+    assert step["variable_explanations"]["ll.head"]["value"] == {"ref": 2, "class": "Node"}
+    assert step["variable_explanations"]["ll.head"]["belongs_to"] == {
+        "object_type": "LinkedList",
+        "reference_id": 1,
+    }
+
+
+def test_nested_head_assignment_preserves_access_paths_and_object_identity():
+    result = ControlledInterpreter().run('''
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+class LinkedList:
+    def __init__(self):
+        self.head = None
+ll = LinkedList()
+ll.head = Node(12)
+ll.head.next = Node(14)
+''')
+    step = next(snapshot for snapshot in result.snapshots if "The node containing 12 now points to the node containing 14" in snapshot["explanation"])
+    entries = step["variable_explanations"]
+
+    assert "ll" not in entries
+    assert set(entries) == {"ll.head.next"}
+    assert entries["ll.head.next"]["value"] == {"ref": 3, "class": "Node"}
+    assert entries["ll.head.next"]["belongs_to"] == {"object_type": "Node", "reference_id": 2}
+
+
+def test_recorded_states_keep_earlier_relationships_when_navigating_history():
+    result = ControlledInterpreter().run('''
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+class LinkedList:
+    def __init__(self):
+        self.head = None
+ll = LinkedList()
+ll.head = Node(12)
+ll.head.next = Node(14)
+''')
+    head_step = next(snapshot for snapshot in result.snapshots if snapshot["source"]["line"] == 10)
+    next_step = next(snapshot for snapshot in result.snapshots if "The node containing 12 now points to the node containing 14" in snapshot["explanation"])
+
+    assert head_step["head_ref"] == 2
+    assert head_step["nodes"] == [{"id": 2, "data": 12, "next": None}]
+    assert next_step["head_ref"] == 2
+    assert next_step["nodes"] == [
+        {"id": 2, "data": 12, "next": 3},
+        {"id": 3, "data": 14, "next": None},
+    ]
+
 def test_constructor_states_visualize_the_actual_linked_list_and_node_objects():
     result = ControlledInterpreter().run('''
 class Node:
@@ -421,7 +492,7 @@ ll.head = Node(12)
 ''')
     step = next(step for step in result.snapshots if step["source"]["line"] == 4)
     entries = step["variable_explanations"]
-    assert set(entries) == {"self", "self.data", "data"}
+    assert set(entries) == {"self.data", "data"}
     assert "ll" not in entries
     assert "self.next" not in entries
 
@@ -439,13 +510,9 @@ ll = LinkedList()
 ll.head = Node(12)
 ''')
     step = next(step for step in result.snapshots if "self.data" in step["variable_explanations"])
-    node_id = step["variable_explanations"]["self"]["reference_id"]
-    self_entry = step["variable_explanations"]["self"]
     data_entry = step["variable_explanations"]["self.data"]
-    assert self_entry["object_type"] == "Node"
-    assert self_entry["access_paths"] == ["self"]
-    assert self_entry["reference_id"] == node_id
-    assert data_entry["belongs_to"] == {"object_type": "Node", "reference_id": node_id}
+    assert set(step["variable_explanations"]) == {"self.data", "data"}
+    assert data_entry["belongs_to"] == {"object_type": "Node", "reference_id": 2}
 
 
 def test_object_access_paths_include_aliases_from_the_current_state():

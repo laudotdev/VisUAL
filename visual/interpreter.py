@@ -158,7 +158,12 @@ class ControlledInterpreter:
                 self._assign(target, value)
             event, explanation = self._assignment_event(node, value)
             explanation = self._pending_explanation or explanation
-            if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id in self.classes:
+            if (
+                isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id in self.classes
+                and any(isinstance(target, ast.Name) for target in node.targets)
+            ):
                 event = "object_creation"
                 explanation = f"Created a {node.value.func.id} object from the class blueprint."
         elif isinstance(node, ast.AnnAssign):
@@ -631,7 +636,61 @@ class ControlledInterpreter:
                 else:
                     explanation = "Current value used by the program."
                 explanations[name] = {"value": value, "explanation": explanation}
+
+        # Materialize only dotted paths that are relevant to this event and
+        # resolve them against the current live object graph.
+        if relevant:
+            for path in sorted(item for item in relevant if "." in item and item not in explanations):
+                resolved = self._resolve_access_path(path)
+                if resolved is _MISSING:
+                    continue
+                owner_path, attribute = path.rsplit(".", 1)
+                owner = self._resolve_access_path(owner_path)
+                if not isinstance(owner, _Instance):
+                    continue
+                entry = {
+                    "value": self._serialize_value(resolved),
+                    "explanation": self._attribute_explanation(attribute, resolved),
+                    "belongs_to": {
+                        "object_type": owner.class_name,
+                        "reference_id": owner.identity,
+                    },
+                }
+                if isinstance(resolved, _Instance):
+                    entry.update(self._reference_metadata(self._serialize_value(resolved), access_paths))
+                explanations[path] = entry
+
+        # A linked-list root is redundant when the current event already
+        # exposes one of its attributes, such as ll.head. Keep self for
+        # method context because it explains the active call frame.
+        for name, item in list(explanations.items()):
+            if name == "self" or "." in name:
+                continue
+            value = item.get("value")
+            if (
+                isinstance(value, dict)
+                and value.get("class") == "LinkedList"
+                and any(path.startswith(f"{name}.") for path in explanations)
+            ):
+                del explanations[name]
         return explanations
+
+    def _resolve_access_path(self, path: str) -> Any:
+        parts = path.split(".")
+        if not parts:
+            return _MISSING
+        value = _MISSING
+        for frame in reversed([self.globals, *self.frames]):
+            if parts[0] in frame:
+                value = frame[parts[0]]
+                break
+        if value is _MISSING:
+            return _MISSING
+        for attribute in parts[1:]:
+            if not isinstance(value, _Instance) or attribute not in value.attrs:
+                return _MISSING
+            value = value.attrs[attribute]
+        return value
 
     def _reference_metadata(self, value: dict[str, Any], access_paths: dict[int, list[str]]) -> dict[str, Any]:
         identity = value.get("ref")
@@ -678,10 +737,7 @@ class ControlledInterpreter:
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             for target in targets:
                 if isinstance(target, ast.Attribute):
-                    target_text = ast.unparse(target)
-                    names.add(target_text)
-                    if isinstance(target.value, ast.Name):
-                        names.add(target.value.id)
+                    names.add(ast.unparse(target))
                 elif isinstance(target, ast.Name):
                     names.add(target.id)
             names.update(item.id for item in ast.walk(node.value) if isinstance(item, ast.Name))
@@ -707,6 +763,10 @@ class ControlledInterpreter:
     def _attribute_explanation(self, attr: str, value: Any) -> str:
         if attr == "data":
             return f"{self._describe_value(value)} — the value stored in the current node."
+        if attr == "head":
+            if value is None:
+                return "None — the linked list does not reference a first node."
+            return f"Refers to the first node containing {self._node_value(value)} in the linked list."
         if value is None:
             return "None — there is no next node referenced here."
         return f"Refers to the {value.class_name} object containing the next linked node." if isinstance(value, _Instance) else "Current attribute value."

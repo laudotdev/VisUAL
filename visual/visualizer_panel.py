@@ -96,9 +96,8 @@ class VisualizerPanel(QWidget):
         bottom = QHBoxLayout()
         variables_group = QGroupBox("Variable Explanation")
         variables_layout = QVBoxLayout(variables_group)
-        self.variables = QPlainTextEdit()
+        self.variables = QTextEdit()
         self.variables.setReadOnly(True)
-        self.variables.setLineWrapMode(QPlainTextEdit.WidgetWidth)
         self.variables.setMaximumHeight(180)
         variables_layout.addWidget(self.variables)
         output_group = QGroupBox("Program output")
@@ -173,7 +172,10 @@ class VisualizerPanel(QWidget):
             snapshot.get("event_type", "step"), snapshot.get("explanation", "")
         ))
         entries = snapshot.get("variable_explanations", {})
-        self.variables.setPlainText(format_variable_explanations(entries) or "(no relevant variables)")
+        self.variables.setHtml(
+            format_variable_explanations(entries)
+            or "(no relevant variables)"
+        )   
         self.program_output_view.setPlainText("\n".join(
             snapshot.get("program_output", self.program_output)
         ) or "(no output yet)")

@@ -1,5 +1,6 @@
 """Beginner-friendly formatting for immutable VisUAL snapshot values."""
 from __future__ import annotations
+from html import escape
 
 from typing import Any
 
@@ -34,13 +35,17 @@ def format_explanation_value(value: Any) -> str:
     return format_variable_value(value)
 
 
-def format_variable_explanations(entries: dict[str, dict[str, Any]]) -> str:
+def format_variable_explanations(entries):
     """Render variable explanations as separated, consistently labeled blocks."""
     blocks = []
     for name, item in entries.items():
         blocks.append(
-            f"{name}\n"
-            f"Current value: {format_explanation_value(item.get('value'))}\n"
-            f"Explanation: {item.get('explanation', '')}"
+            f'<div style="margin-bottom:12px;">'
+            f'<span style="color:#8be9fd; font-weight:bold;">'
+            f'{escape(name)}'
+            f'</span><br>'
+            f'<b>Current value:</b> {escape(format_explanation_value(item["value"]))}<br>'
+            f'<b>Explanation:</b> {escape(item["explanation"])}'
+            f'</div>'
         )
-    return "\n\n".join(blocks)
+    return "".join(blocks)

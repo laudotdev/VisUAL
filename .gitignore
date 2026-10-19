@@ -6,6 +6,11 @@
 # Tests and local test fixtures
 tests/
 test_inline_input.py
+test_analyzer.py
+test_presentation.py
+test_visualizer_panel.py
+test_interpreter.py
+test_linked_list_view.py
 
 # IDE/editor metadata
 .idea/
@@ -30,3 +35,15 @@ dist/
 /pasted-text.txt
 /requirements-dev.txt
 /visual/README.md
+# Private credentials and local runtime data
+.secrets/
+*.secret
+*.pem
+*.key
+*.p12
+*.pfx
+*.db
+*.sqlite
+*.sqlite3
+*.log
+.DS_Store

@@ -42,6 +42,22 @@ def node_rank_label(rank: int) -> str:
     return f"Node {rank}"
 
 
+def blueprint_description(snapshot: dict) -> str:
+    """Describe a class blueprint without presenting it as a runtime object."""
+    visualization = snapshot.get("visualization", {})
+    if visualization.get("kind") != "class_blueprint":
+        return ""
+    class_name = visualization.get("class_name", "Class")
+    descriptions = {
+        "data": "stores the object's value",
+        "next": "references the next object",
+        "head": "references the first node",
+    }
+    lines = [f"{class_name} class blueprint"]
+    lines.extend(f"{name}: {descriptions.get(name, 'is an object attribute')}" for name in visualization.get("attributes", []))
+    return "\n".join(lines)
+
+
 class LinkedListView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -82,6 +98,11 @@ class LinkedListView(QWidget):
         if not self._snapshot:
             painter.setPen(QColor("#c5cbd3"))
             painter.drawText(self.rect(), Qt.AlignCenter, "No visualization snapshot available.")
+            return
+        if self._snapshot.get("visualization", {}).get("kind") == "class_blueprint":
+            painter.setPen(QColor("#c5cbd3"))
+            painter.setFont(QFont("Sans Serif", 12, QFont.Bold))
+            painter.drawText(self.rect(), Qt.AlignCenter, blueprint_description(self._snapshot))
             return
         if head_ref is None:
             painter.setPen(QColor("#c5cbd3"))

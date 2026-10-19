@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from .linked_list_view import LinkedListView
-from .presentation import format_variable_value
+from .presentation import format_variable_explanations
 from ui.panel_icons import ICON_SIZE, panel_icon
 
 
@@ -29,7 +29,7 @@ class VisualizerPanel(QWidget):
     @staticmethod
     def _explanation_html(event_type: str, explanation: str) -> str:
         """Render trace prose as readable rich text, including inline code."""
-        text = escape(f"{event_type}: {explanation}")
+        text = escape(f"{event_type}: {explanation}", quote=False)
         text = re.sub(r"`([^`]+)`", r'<span style="color:#8be9fd; font-weight:800">\1</span>', text)
         return text.replace("\n", "<br>")
 
@@ -94,11 +94,12 @@ class VisualizerPanel(QWidget):
         root.addWidget(explanation_group)
 
         bottom = QHBoxLayout()
-        variables_group = QGroupBox("Variables and references")
+        variables_group = QGroupBox("Variable Explanation")
         variables_layout = QVBoxLayout(variables_group)
         self.variables = QPlainTextEdit()
         self.variables.setReadOnly(True)
-        self.variables.setMaximumHeight(115)
+        self.variables.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self.variables.setMaximumHeight(180)
         variables_layout.addWidget(self.variables)
         output_group = QGroupBox("Program output")
         output_layout = QVBoxLayout(output_group)
@@ -122,7 +123,7 @@ class VisualizerPanel(QWidget):
         self.snapshots = snapshots or []
         self.program_output = output or []
         self.current_index = 0
-        self.program_output_view.setPlainText("\n".join(self.program_output) or "(no output)")
+        self.program_output_view.setPlainText("\n".join(self.program_output) or "(no output yet)")
         if error:
             self.status_label.setText(f"Visualization failed: {error}")
         else:
@@ -171,10 +172,8 @@ class VisualizerPanel(QWidget):
         self.explanation.setText(self._explanation_html(
             snapshot.get("event_type", "step"), snapshot.get("explanation", "")
         ))
-        self.variables.setPlainText("\n".join(
-            f"{name} = {format_variable_value(value)}"
-            for name, value in snapshot.get("variables", {}).items()
-        ) or "(no tracked variables)")
+        entries = snapshot.get("variable_explanations", {})
+        self.variables.setPlainText(format_variable_explanations(entries) or "(no relevant variables)")
         self.program_output_view.setPlainText("\n".join(
             snapshot.get("program_output", self.program_output)
         ) or "(no output yet)")

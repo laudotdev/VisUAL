@@ -1,0 +1,472 @@
+Implementation Prompt — VisUAL Visualization and Learning Experience
+Objective
+Improve the existing VisUAL visualization system to make Python Data Structures and Algorithms easier for students to understand.
+
+The current VisUAL implementation already provides:
+- Step-by-step execution tracing.
+- Recorded execution states with Previous and Next navigation.
+- Linked list node visualization.
+- Visual highlighting of nodes during traversal.
+- A Step Explanation panel.
+- A Variables and References panel.
+- A Program Output panel.
+Do not rebuild these features from scratch. Inspect the existing repository and extend the current implementation while preserving its established architecture and working functionality.
+
+The goal is to transform the current execution trace into a more educational visualization experience where students can understand what happened, what changed, why it changed, and what each relevant variable means.
+
+Do not assume that the existing implementation uses a particular architecture or file structure. Inspect the repository before deciding where changes belong.
+1. Preserve Existing Visualization Behavior
+Before making changes, inspect the current visualization and execution-tracing implementation.
+
+The existing linked list visualization must continue to work.
+
+Preserve:
+- Node rendering and layout.
+- Node data values.
+- next references and connecting arrows.
+- The head indicator.
+- None representation.
+- Step navigation.
+- Recorded execution states.
+- Green highlighting for the currently traversed node.
+- Existing supported execution behavior.
+- Correct synchronization between the current source-code step and the visualization.
+Do not introduce a replacement visualization system if the existing system can be extended.
+
+Do not remove working functionality simply to simplify the implementation.
+2. Visualize Class Definitions and Object Creation Correctly
+The visualization must distinguish between defining a class and creating an object.
+Class definition
+For example:
+class Node:    def __init__(self, data):        self.data = data        self.next = None
+
+
+When the class is defined, explain that Node is a blueprint for creating node objects.
+
+A class definition must not automatically create an actual node instance unless the program executes an object-creation expression.
+
+The visualization may show a class blueprint with its conceptual attributes:
+- data: Stores the node's value.
+- next: Holds a reference to the next node.
+Clearly distinguish this blueprint from an actual node object.
+Object creation
+When the program executes an expression such as:
+Node(12)
+
+
+Visualize the actual node object with its current attributes.
+
+Example:
+┌─────────────────┐
+│ data: 12        │
+│ next: None      │
+└─────────────────┘
+
+The actual displayed state must reflect the real execution state.
+
+Do not invent nodes, values, or references merely to make the visualization appear complete.
+3. Improve Method Call and self Explanations
+The visualization must explain method calls and their arguments.
+
+For example:
+ll.insert_beginning(13)
+
+
+When the method call is active, show the relationship between the call, its parameters, and the actual object.
+
+Conceptual representation:
+Method call: ll.insert_beginning(13)
+
+self ─────► LinkedList object: ll
+data ─────► 13
+
+Explain that:
+- ll is the variable used to call the method.
+- insert_beginning is the method being called.
+- self refers to the current LinkedList object.
+- data receives the argument 13.
+Requirements:
+- Represent self as a reference to the actual object, not as an arbitrary numeric value.
+- Display the actual argument values passed to the method.
+- Reflect the method's actual parameters and execution context.
+- Do not hardcode explanations that work only for insert_beginning.
+- Ensure that method-call information corresponds to the actual active execution step.
+4. Replace "Variables and References" With "Variable Explanation"
+Rename the existing panel:
+
+Variables and References → Variable Explanation
+
+The new panel must explain the meaning and current state of relevant variables instead of displaying only internal identifiers or numeric object IDs.
+
+For example, instead of displaying:
+ll = 1
+self = 1
+data = 13
+new_value = 4
+
+Present information conceptually similar to:
+Name	Current value or target	Explanation
+self	LinkedList object ll	Refers to the linked list object whose method is executing.
+data	13	The value passed to the method.
+new_value	Node containing 13	Refers to the newly created node.
+self.head	Node containing 12	Refers to the current first node before the head update.
+
+
+This table is illustrative. The actual contents must reflect the current execution state.
+Contextual explanations
+Display variables relevant to the current step.
+
+Do not force every possible variable into every step.
+
+For example, during traversal, relevant entries may include:
+- current
+- current.data
+- current.next
+- head, when useful for understanding the traversal
+During insertion, relevant entries may include:
+- self
+- data
+- new_value
+- self.head
+- new_value.next
+Include other variables when they are necessary to explain the actual operation.
+Explanation requirements
+For every displayed variable, provide:
+1. Its name.
+2. Its current value or referenced object.
+3. A clear explanation of its role.
+When a variable refers to an object, make the relationship understandable.
+
+When an attribute contains None, explain its meaning in context rather than treating it as an unexplained value.
+
+Avoid showing arbitrary numeric object IDs as the primary explanation of variables.
+
+Internal identifiers may still be used where needed for object identity, but they must not replace educational explanations.
+5. Separate Internal Program State From Program Output
+The visualization and the Program Output panel must represent different things.
+Internal state
+The visualization and Variable Explanation panel represent the current state of the program.
+
+For example:
+ll = LinkedList()ll.head = Node(12)ll.head.next = Node(14)
+
+
+The linked list visualization should show:
+head
+ │
+ ▼
+[12] ─────► [14] ─────► None
+
+However, if no output statement has executed, the Program Output panel must still display:
+(no output yet)
+
+The existence of data in memory must not be interpreted as program output.
+Program output
+When the program executes:
+print(current.data)
+
+
+and the value is 12, the Program Output panel must display:
+12
+
+When the next executed print statement outputs 14, the panel should display:
+12
+14
+
+Requirements:
+- Capture actual output generated by the supported execution environment.
+- Preserve previously generated output as execution advances.
+- Do not display internal values as output unless the program actually prints them.
+- Do not predict future output and display it prematurely.
+- Ensure that navigating between recorded states restores the correct output for the selected state.
+- Preserve the distinction between an empty output and an output containing values such as 0, False, or an empty string.
+6. Add a Current Data Explanation Through the Variable Explanation Panel
+Use the Variable Explanation panel to display relevant data before it is printed.
+
+Do not add a new panel solely for displaying the current node's data unless repository inspection reveals a compelling technical reason.
+
+For example, while traversing a node containing 12:
+Variable Explanation
+
+current
+Refers to the node containing 12.
+
+current.data
+12 — the value stored in the current node.
+
+current.next
+Refers to the next node.
+
+When traversal moves to the next node containing 14, update the relevant explanations:
+Variable Explanation
+
+current
+Refers to the node containing 14.
+
+current.data
+14 — the value stored in the current node.
+
+current.next
+None — there is no next node.
+
+The Program Output panel must remain unchanged until the corresponding print statement executes.
+
+The Variable Explanation panel must represent the actual state at the selected execution step.
+7. Improve Step Explanation
+Keep the existing Step Explanation panel, but improve its educational quality.
+
+The panel must explain:
+
+What happened in the current step, and why does it matter?
+
+Avoid relying exclusively on raw execution messages such as:
+link_change: LinkedList #1's head changed from Node #2 to Node #4.
+
+This message may describe an internal event, but it does not adequately explain the concept to a beginner.
+
+A more educational explanation would be:
+The linked list's head reference now points to the newly created node containing 13. The new node becomes the first node in the list.
+
+The explanation must be based on the actual event and state.
+Step explanation requirements
+- Describe the event in understandable technical English.
+- Explain the significance of the event when relevant.
+- Identify the affected variable, object, or reference.
+- Explain intermediate changes when they matter to understanding the algorithm.
+- Avoid claiming that an operation occurred before it actually executed.
+- Avoid explanations that contradict the current visualization.
+- Do not repeat generic descriptions that provide no information about the current step.
+If the current step represents a condition check, loop iteration, object creation, reference update, output event, or method completion, explain that specific event.
+
+Do not fabricate an event simply because the visualization expects an explanation.
+8. Visualize Meaningful Intermediate States
+The visualization must not show only the final state of an operation when intermediate reference changes are meaningful to the learner.
+
+Consider:
+def insert_beginning(self, data):    new_value = Node(data)    new_value.next = self.head    self.head = new_value    print(new_value.data)
+
+
+The trace should distinguish the following events.
+Event A: Create the node
+A new node containing 13 is created.
+
+The node must be represented according to the actual object state.
+Event B: Update new_value.next
+The new node's next reference is set to the previous first node.
+
+Before updating head, the list's original head must remain unchanged.
+
+Conceptual intermediate state:
+new_value
+    │
+    ▼
+[13] ─────► [12] ─────► [14] ─────► None
+
+head
+ │
+ ▼
+[12]
+
+Event C: Update head
+The linked list's head now points to the new node.
+head
+ │
+ ▼
+[13] ─────► [12] ─────► [14] ─────► None
+
+Event D: Execute print()
+The program prints 13.
+
+The Program Output panel is updated only when this event occurs.
+
+The exact intermediate states must be derived from the actual supported execution trace. Do not synthesize incorrect states or assume every method follows the same sequence.
+9. Preserve and Improve Traversal Highlighting
+The current VisUAL implementation highlights the node being traversed in green.
+
+Preserve this behavior.
+
+During traversal:
+- Identify the node currently referenced by the traversal variable.
+- Highlight the correct node.
+- Update the highlight as the traversal variable advances.
+- Keep the linked list's structure visible.
+- Explain the role of the traversal variable.
+- Update the Variable Explanation panel to reflect the current node.
+- Update Program Output only when the corresponding print statement executes.
+The current head reference must remain distinct from the traversal variable.
+
+Moving current during traversal must not incorrectly move or replace head.
+
+Use the lesson's explanation of linked list traversal as the educational reference.
+10. Use Sir's Linked List, Stack, and Queue PDF as the Primary Educational Reference
+Use the supplied Linked List, Stack and Queue — Student Reference Module as the primary source for educational explanations of the covered concepts.
+
+Do not replace the lesson's terminology with unrelated explanations.
+
+Relevant concepts include:
+- Classes and objects.
+- Nodes and references.
+- head and the empty-list state.
+- Traversal.
+- Insertion at the beginning, end, and a position.
+- Deletion.
+- Searching.
+- Stack operations and LIFO behavior.
+- Queue operations and FIFO behavior.
+- front and rear.
+- Common beginner mistakes.
+Apply the reference where relevant to the existing supported features.
+
+For example:
+
+head
+
+Explain that head refers to the first node and is None when the linked list is empty.
+
+current
+
+Explain that it is a temporary reference used to traverse the linked list without changing head.
+
+Insertion at the beginning
+
+Explain why the new node must first link to the previous first node before head is updated.
+
+Stack
+
+When the supported execution involves a stack, explain the relevant LIFO behavior and operation.
+
+Queue
+
+When the supported execution involves a queue, explain the relevant FIFO behavior and the roles of front and rear.
+
+Do not implement new DSA features simply because they are mentioned in the PDF. Improve explanations for features that the repository already supports.
+Accuracy requirement
+The PDF establishes the educational context, but the actual program execution determines the current state.
+
+If the PDF does not address a particular implementation detail, do not falsely attribute an explanation to the lesson. Verify technical claims when necessary and clearly distinguish additional technical explanations from lesson-derived content.
+11. Comment Style Requirements
+Follow the existing project's coding conventions where possible, but apply these explicit comment-style rules to any new or modified comments.
+Avoid decorative section comments
+Do not use comments such as:
+# #====== Visualization ======# ====== State Tracking ======# ----- Helper Functions -----
+
+
+Avoid decorative separators, repeated symbols, and unnecessarily large comment banners.
+Use concise, meaningful comments
+Prefer comments that explain a function's purpose or a non-obvious implementation decision.
+
+For example:
+#This function tests every feature before commit; do not push unfinished changes.
+
+
+Or:
+#Explain the current node reference without changing the linked-list head.
+
+
+Use comments only when they add value.
+
+Do not add comments that merely repeat the code on the next line.
+
+Follow the repository's existing formatting conventions for indentation and spacing.
+
+Important: The examples above define the intended comment style, not mandatory text that must be copied into unrelated functions. Do not insert repository workflow instructions such as "do not push" into production functions unless they are actually relevant to that function.
+12. Implementation Constraints
+Before editing any files:
+1. Inspect the repository structure.
+2. Identify the existing trace-state schema and event-generation logic.
+3. Identify how the linked list visualization consumes recorded states.
+4. Identify how the Step Explanation panel is populated.
+5. Identify how Variables and References are collected and rendered.
+6. Identify how Program Output is recorded and restored during navigation.
+7. Identify how the current traversal node is highlighted.
+8. Determine which existing components can be extended without introducing unnecessary duplication.
+Then prepare the implementation around the existing architecture.
+
+Do not:
+- Rewrite the project from scratch.
+- Replace the current visualization engine without a demonstrated need.
+- Introduce a second independent source of truth for execution state.
+- Hardcode explanations for the supplied test program.
+- Hardcode node IDs, variable names, or data values.
+- Fabricate visualization states.
+- Treat internal object IDs as user-facing explanations.
+- Change supported Python behavior without a specific requirement.
+- Claim unsupported syntax works when it does not.
+- Add unrelated features.
+- Modify unrelated project documentation or files unless necessary.
+If the existing architecture cannot support an approved requirement, identify the limitation and explain the smallest appropriate architectural change before proceeding with a larger redesign.
+13. Testing Requirements
+Add or update tests that verify the behavior, not merely the presence of UI labels.
+
+At minimum, validate the following scenarios.
+Test A: Class definition
+Verify that defining a class does not incorrectly create a node object.
+
+Verify that the explanation identifies the class as a blueprint.
+Test B: Node creation
+Verify that creating a node displays the correct data and next state.
+Test C: Method call
+Verify that the method-call explanation correctly maps self to the calling object and data to the passed argument.
+Test D: Variable Explanation
+Verify that the displayed variables, values, object targets, and explanations correspond to the selected execution state.
+
+Verify that self is not displayed as an arbitrary numeric value in place of its object reference.
+Test E: Internal state without output
+Execute code that creates and links nodes without calling print().
+
+Verify that the visualization displays the linked list while Program Output remains empty.
+Test F: Printed output
+Execute code that prints several node values.
+
+Verify that Program Output contains the correct values in the correct order.
+Test G: Output and navigation
+Navigate backward and forward between recorded states.
+
+Verify that Program Output corresponds to the selected state and does not leak future output into earlier steps.
+Test H: Insertion at the beginning
+Verify that the trace shows the new node creation, reference assignment, and head update in the correct execution order.
+Test I: Traversal
+Verify that:
+- The correct node is highlighted.
+- The traversal reference advances correctly.
+- head remains unchanged.
+- The Variable Explanation panel reflects the current node.
+- Output is added only when printing occurs.
+Test J: Existing functionality
+Run the existing test suite and verify that previously supported visualization and execution behavior remain functional.
+
+Include additional tests for edge cases discovered during repository inspection.
+14. Acceptance Criteria
+The implementation is acceptable only if all of the following are satisfied:
+1. Existing node visualization continues to work.
+2. Existing traversal highlighting is preserved.
+3. Class definitions and object creation are explained distinctly.
+4. Method calls show accurate object and argument relationships.
+5. The Variables and References panel is replaced or appropriately adapted into Variable Explanation.
+6. Variable explanations are contextual, detailed, and state-accurate.
+7. Step Explanation describes meaningful events in understandable language.
+8. Internal program state is not confused with Program Output.
+9. Program Output contains only output actually generated by execution.
+10. Recorded-state navigation restores consistent visualization, explanations, variables, and output.
+11. Meaningful intermediate reference changes are visible.
+12. Educational explanations align with Sir's PDF and remain technically accurate.
+13. Existing supported behavior is preserved.
+14. Tests verify the new behavior.
+15. New comments follow the requested concise, non-decorative style.
+16. No unrelated features or unnecessary architectural rewrites are introduced.
+15. Final Deliverables
+After implementation, provide:
+1. A summary of the changes.
+2. The files modified and the purpose of each change.
+3. An explanation of how the new visualization behavior works.
+4. The tests added or modified.
+5. The test results, including any failures.
+6. Any remaining limitations or unsupported scenarios.
+7. Confirmation that existing traversal highlighting and other established functionality were preserved.
+Do not claim that a requirement has been implemented or tested unless the repository changes and test results support that claim.
+Final instruction
+Implement this as an incremental improvement to the existing VisUAL project.
+
+Prioritize correctness, educational clarity, state consistency, and maintainability.
+
+The goal is not merely to show a linked list. The goal is to help students understand how the linked list changes during execution and why each change matters.

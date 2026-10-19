@@ -226,3 +226,156 @@ ll.traverse()
     assert [(node["id"], node["data"], node["next"]) for node in final["nodes"]] == [
         (4, 13, 2), (2, 12, 3), (3, 14, None)
     ]
+
+
+def test_class_definition_is_a_blueprint_and_node_creation_is_recorded_separately():
+    source = '''
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+class LinkedList:
+    def __init__(self):
+        self.head = None
+ll = LinkedList()
+node = Node(12)
+'''
+    result = ControlledInterpreter().run(source)
+    assert result.status == "completed", result.error
+    class_step = next(step for step in result.snapshots if step["event_type"] == "class_definition" and "Node" in step["explanation"])
+    assert "blueprint" in class_step["explanation"].lower()
+    assert class_step["nodes"] == []
+    assert class_step["visualization"]["kind"] == "class_blueprint"
+    assert class_step["visualization"]["class_name"] == "Node"
+    assert class_step["visualization"]["attributes"] == ["data", "next"]
+    creation = next(step for step in result.snapshots if step["event_type"] == "object_creation" and step["nodes"])
+    assert creation["nodes"][0]["data"] == 12
+
+
+def test_method_call_and_variable_explanation_describe_actual_references():
+    result = ControlledInterpreter().run('''
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+class LinkedList:
+    def __init__(self):
+        self.head = None
+    def insert(self, data):
+        new_node = Node(data)
+        self.head = new_node
+ll = LinkedList()
+ll.insert(13)
+''')
+    assert result.status == "completed", result.error
+    method_step = next(step for step in result.snapshots if step["event_type"] == "method_call")
+    assert "self" in method_step["explanation"]
+    assert "13" in method_step["explanation"]
+    variables = method_step["variable_explanations"]
+    assert variables["self"]["value"]["class"] == "LinkedList"
+    assert "object" in variables["self"]["explanation"].lower()
+
+
+def test_self_explanation_identifies_alias_to_calling_variable():
+    result = ControlledInterpreter().run('''
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+class LinkedList:
+    def __init__(self):
+        self.head = None
+    def insert(self, data):
+        self.head = Node(data)
+ll = LinkedList()
+ll.insert(13)
+''')
+    method_step = next(step for step in result.snapshots if step["event_type"] == "method_call" and "insert" in step["explanation"])
+    assert "same object as ll" in method_step["variable_explanations"]["self"]["explanation"]
+    assert "same object as self" not in method_step["variable_explanations"]["ll"]["explanation"]
+
+
+def test_head_update_explanation_describes_its_learning_significance():
+    result = ControlledInterpreter().run('''
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+class LinkedList:
+    def __init__(self):
+        self.head = None
+    def insert(self, data):
+        new_node = Node(data)
+        self.head = new_node
+ll = LinkedList()
+ll.insert(13)
+''')
+    head_step = next(step for step in result.snapshots if step["event_type"] == "link_change" and "first node" in step["explanation"])
+    assert "head reference" in head_step["explanation"]
+    assert "first node" in head_step["explanation"]
+    assert "13" in head_step["explanation"]
+
+
+def test_prepend_records_creation_next_head_and_output_in_order():
+    result = ControlledInterpreter().run('''
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+class LinkedList:
+    def __init__(self):
+        self.head = None
+    def prepend(self, data):
+        new_value = Node(data)
+        new_value.next = self.head
+        self.head = new_value
+        print(new_value.data)
+ll = LinkedList()
+ll.head = Node(12)
+ll.prepend(13)
+''')
+    events = result.snapshots
+    creation_index = max(i for i, step in enumerate(events) if step["event_type"] == "object_creation" and any(node["data"] == 13 for node in step["nodes"]))
+    next_index = next(i for i, step in enumerate(events[creation_index:], creation_index) if step["event_type"] == "link_change" and "next reference" in step["explanation"] and "13" in step["explanation"])
+    head_index = next(i for i, step in enumerate(events[next_index:], next_index) if step["event_type"] == "link_change" and "first node" in step["explanation"])
+    output_index = next(i for i, step in enumerate(events[head_index:], head_index) if step["event_type"] == "output")
+    assert creation_index < next_index < head_index < output_index
+
+
+def test_variable_explanation_tracks_node_attributes_without_confusing_output():
+    result = ControlledInterpreter().run('''
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+class LinkedList:
+    def __init__(self):
+        self.head = None
+ll = LinkedList()
+ll.head = Node(12)
+current = ll.head
+''')
+    assert result.status == "completed", result.error
+    state = next(step for step in result.snapshots if step["variables"].get("current"))
+    assert state["program_output"] == []
+    assert state["variable_explanations"]["current.data"]["value"] == 12
+    assert "stored" in state["variable_explanations"]["current.data"]["explanation"].lower()
+
+
+def test_variable_explanation_follows_highlighted_attribute_assignment():
+    result = ControlledInterpreter().run('''
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+class LinkedList:
+    def __init__(self):
+        self.head = None
+ll = LinkedList()
+ll.head = Node(12)
+''')
+    step = next(step for step in result.snapshots if step["source"]["line"] == 4)
+    entries = step["variable_explanations"]
+    assert set(entries) == {"self", "self.data", "data"}
+    assert "ll" not in entries
+    assert "self.next" not in entries

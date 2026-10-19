@@ -1,4 +1,4 @@
-from visual.presentation import format_variable_value
+from visual.presentation import format_variable_explanations, format_variable_value, format_explanation_value
 
 
 def test_formats_node_and_list_references_as_ids():
@@ -26,3 +26,19 @@ def test_formats_nested_reference_values_without_changing_them():
 def test_keeps_unknown_or_invalid_references_visible():
     assert format_variable_value({"ref": "4", "class": "Node"}) == "{'ref': '4', 'class': 'Node'}"
     assert format_variable_value({"value": 4}) == "{'value': 4}"
+
+
+def test_explanation_formatter_names_object_type_before_identity():
+    assert format_explanation_value({"ref": 4, "class": "Node"}) == "Node object (reference 4)"
+
+
+def test_variable_explanations_are_spaced_as_readable_blocks():
+    rendered = format_variable_explanations({
+        "ll": {"value": {"ref": 1, "class": "LinkedList"}, "explanation": "The caller's list."},
+        "data": {"value": 13, "explanation": "Argument for the method."},
+    })
+    assert rendered == (
+        "ll\nCurrent value: LinkedList object (reference 1)\n"
+        "Explanation: The caller's list.\n\n"
+        "data\nCurrent value: 13\nExplanation: Argument for the method."
+    )

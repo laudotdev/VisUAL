@@ -108,7 +108,7 @@ class ControlledInterpreter:
             # Class/function declarations are registered before top-level execution.
             for item in self.tree.body:
                 if isinstance(item, ast.ClassDef):
-                    self._record(item, "class_definition", f"Defined class {item.name}.")
+                    self._record(item, "class_definition", self._class_explanation(item))
                 elif isinstance(item, ast.FunctionDef):
                     self.globals[item.name] = item
                 elif isinstance(item, ast.ImportFrom) and item.module == "dsa" and any(
@@ -148,7 +148,7 @@ class ControlledInterpreter:
         event = "statement"
         explanation = f"Executed {type(node).__name__}."
         if isinstance(node, ast.ClassDef):
-            event, explanation = "class_definition", f"Defined class {node.name}."
+            event, explanation = "class_definition", self._class_explanation(node)
         elif isinstance(node, ast.FunctionDef):
             self._locals()[node.name] = node
             event, explanation = "function_definition", f"Defined method {node.name}()."
@@ -158,6 +158,9 @@ class ControlledInterpreter:
                 self._assign(target, value)
             event, explanation = self._assignment_event(node, value)
             explanation = self._pending_explanation or explanation
+            if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id in self.classes:
+                event = "object_creation"
+                explanation = f"Created a {node.value.func.id} object from the class blueprint."
         elif isinstance(node, ast.AnnAssign):
             if node.value is not None:
                 value = self._eval(node.value)
@@ -246,10 +249,7 @@ class ControlledInterpreter:
                 raise RuntimeError("Dunder attributes are not supported.")
             previous = owner.attrs.get(target.attr, _MISSING)
             owner.attrs[target.attr] = value
-            self._pending_explanation = (
-                f"{owner.class_name} #{owner.identity}'s `{target.attr}` changed from "
-                f"{self._describe_value(previous)} to {self._describe_value(value)}."
-            )
+            self._pending_explanation = self._reference_explanation(owner, target.attr, value, previous)
         elif isinstance(target, (ast.Tuple, ast.List)):
             if not isinstance(value, (tuple, list)) or len(value) != len(target.elts):
                 raise RuntimeError("Unpacking assignment shape mismatch.")
@@ -309,6 +309,15 @@ class ControlledInterpreter:
                 raise RuntimeError(f"Call to '{name}()' is not supported by VisUAL.")
             function = self._eval(node.func)
             if isinstance(function, _Method):
+                call_text = ast.unparse(node)
+                parameters = [arg.arg for arg in function.function.args.args]
+                frame = {"self": function.owner}
+                frame.update(zip(parameters[1:] if parameters and parameters[0] == "self" else parameters, args))
+                self.frames.append(frame)
+                try:
+                    self._record(node, "method_call", self._method_call_explanation(function, args, call_text))
+                finally:
+                    self.frames.pop()
                 return self._call_method(function.owner, function.function, args)
             raise RuntimeError("Only supported user-defined methods and built-ins can be called.")
         if isinstance(node, ast.Compare):
@@ -358,6 +367,22 @@ class ControlledInterpreter:
         if init is not None:
             self._call_method(instance, init, args)
         return instance
+
+    @staticmethod
+    def _class_explanation(node: ast.ClassDef) -> str:
+        fields = []
+        for function in node.body:
+            if isinstance(function, ast.FunctionDef) and function.name == "__init__":
+                fields.extend(target.attr for statement in function.body if isinstance(statement, ast.Assign)
+                              for target in statement.targets if isinstance(target, ast.Attribute) and target.value.id == "self")
+        detail = "; ".join(f"{field}: an attribute of each object" for field in dict.fromkeys(fields))
+        return f"Defined class {node.name} as a blueprint for creating objects." + (f" It describes {detail}." if detail else "")
+
+    def _method_call_explanation(self, method: _Method, args: list[Any], call_text: str) -> str:
+        parameters = [arg.arg for arg in method.function.args.args]
+        pairs = [f"self refers to the {method.owner.class_name} object" ]
+        pairs.extend(f"{name} receives {self._describe_value(value)}" for name, value in zip(parameters[1:] if parameters and parameters[0] == "self" else parameters, args))
+        return f"Method call {call_text}: " + "; ".join(pairs) + "."
 
     def _find_method(self, class_name: str, method_name: str) -> ast.FunctionDef | None:
         cls = self.classes.get(class_name)
@@ -468,6 +493,11 @@ class ControlledInterpreter:
                     ordered.append(current)
                     seen.add(current.identity)
                 current = current.attrs.get("next")
+        if event_type == "object_creation":
+            for instance in node_instances:
+                if instance.identity not in seen:
+                    ordered.append(instance)
+                    seen.add(instance.identity)
         nodes = [{
             "id": item.identity,
             "data": self._serialize_value(item.attrs.get("data")),
@@ -480,6 +510,8 @@ class ControlledInterpreter:
                 if name.startswith("__") or isinstance(value, ast.AST):
                     continue
                 variables[name] = self._serialize_value(value)
+        variable_explanations = self._variable_explanations(variables, node, event_type)
+        visualization = self._visualization_metadata(node, event_type)
         source = {
             "line": getattr(node, "lineno", 1) if node is not None else 1,
             "column": getattr(node, "col_offset", 0) + 1 if node is not None else 1,
@@ -490,9 +522,130 @@ class ControlledInterpreter:
             "step_index": len(self.snapshots), "source": source, "event_type": event_type,
             "nodes": nodes, "next_refs": {str(item["id"]): item["next"] for item in nodes},
             "head_ref": head_ref, "variables": variables, "explanation": explanation,
+            "variable_explanations": variable_explanations,
+            "visualization": visualization,
             "program_output": list(self.output), "status": self.status,
             "traversed_node_ref": self._traversed_node_ref,
         }
+
+    def _visualization_metadata(self, node: ast.AST | None, event_type: str) -> dict:
+        if event_type != "class_definition" or not isinstance(node, ast.ClassDef):
+            return {"kind": "linked_list"}
+        attributes = []
+        for function in node.body:
+            if not isinstance(function, ast.FunctionDef) or function.name != "__init__":
+                continue
+            for statement in function.body:
+                if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                    continue
+                targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+                for target in targets:
+                    if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id == "self":
+                        if target.attr not in attributes:
+                            attributes.append(target.attr)
+        return {"kind": "class_blueprint", "class_name": node.name, "attributes": attributes}
+
+    def _variable_explanations(self, variables: dict[str, Any], node: ast.AST | None, event_type: str) -> dict[str, dict[str, Any]]:
+        explanations = {}
+        relevant = self._relevant_variable_names(node, event_type)
+        aliases: dict[tuple[str, int], list[str]] = {}
+        for name, value in variables.items():
+            if isinstance(value, dict) and isinstance(value.get("ref"), int):
+                aliases.setdefault((value.get("class", "object"), value["ref"]), []).append(name)
+        for name, value in variables.items():
+            if relevant is not None and name not in relevant:
+                continue
+            if isinstance(value, dict) and value.get("class") == "Node":
+                explanations[name] = {"value": value, "explanation": f"Refers to the node containing {self._node_data(value.get('ref'))}."}
+                instance = next((item for item in self.instances if item.identity == value.get("ref")), None)
+                if instance is not None:
+                    selected_attributes = (
+                        {item.split(".", 1)[1] for item in relevant if item.startswith(f"{name}.")}
+                        if relevant is not None else set()
+                    )
+                    for attr, attr_value in instance.attrs.items():
+                        key = f"{name}.{attr}"
+                        if selected_attributes and attr not in selected_attributes:
+                            continue
+                        explanations[key] = {"value": self._serialize_value(attr_value), "explanation": self._attribute_explanation(attr, attr_value)}
+            elif isinstance(value, dict) and value.get("class") == "LinkedList":
+                peers = [peer for peer in aliases.get(("LinkedList", value["ref"]), []) if peer != name]
+                if name == "self" and peers:
+                    explanation = f"The method's current object; same object as {', '.join(peers)}."
+                elif "self" in peers:
+                    explanation = "The linked list object used to call the method."
+                else:
+                    explanation = "Refers to the linked list object used by the program."
+                explanations[name] = {"value": value, "explanation": explanation}
+            else:
+                if self.frames and name in self.frames[-1] and name != "self":
+                    explanation = "Argument or local value used by the current method."
+                else:
+                    explanation = "Current value used by the program."
+                explanations[name] = {"value": value, "explanation": explanation}
+        return explanations
+
+    def _relevant_variable_names(self, node: ast.AST | None, event_type: str) -> set[str] | None:
+        if node is None:
+            return None
+        names: set[str] = set()
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Attribute):
+                    target_text = ast.unparse(target)
+                    names.add(target_text)
+                    if isinstance(target.value, ast.Name):
+                        names.add(target.value.id)
+                elif isinstance(target, ast.Name):
+                    names.add(target.id)
+            names.update(item.id for item in ast.walk(node.value) if isinstance(item, ast.Name))
+            return names
+        if isinstance(node, ast.Call):
+            names.update(item.id for item in ast.walk(node) if isinstance(item, ast.Name))
+            if event_type == "method_call":
+                names.update(self.frames[-1].keys() if self.frames else ())
+            return names
+        if isinstance(node, (ast.If, ast.While)):
+            expression = node.test
+            names.update(item.id for item in ast.walk(expression) if isinstance(item, ast.Name))
+            return names
+        if isinstance(node, ast.Expr):
+            names.update(item.id for item in ast.walk(node.value) if isinstance(item, ast.Name))
+            return names
+        return None
+
+    def _node_data(self, identity: int | None) -> Any:
+        instance = next((item for item in self.instances if item.identity == identity), None)
+        return self._serialize_value(instance.attrs.get("data")) if instance else "unknown"
+
+    def _attribute_explanation(self, attr: str, value: Any) -> str:
+        if attr == "data":
+            return f"{self._describe_value(value)} — the value stored in the current node."
+        if value is None:
+            return "None — there is no next node referenced here."
+        return f"Refers to the {value.class_name} object containing the next linked node." if isinstance(value, _Instance) else "Current attribute value."
+
+    def _reference_explanation(self, owner: _Instance, attribute: str, value: Any, previous: Any) -> str:
+        if attribute == "head":
+            if value is None:
+                return "The linked list's head reference is now None, so the list is empty."
+            return (
+                f"The linked list's head reference now points to the node containing {self._node_value(value)}. "
+                "This node becomes the first node in the list."
+            )
+        if attribute == "next":
+            target = "None" if value is None else f"the node containing {self._node_value(value)}"
+            return f"The node containing {self._node_value(owner)} now points to {target} through its next reference."
+        return (
+            f"{owner.class_name} object's {attribute} changed from {self._describe_value(previous)} "
+            f"to {self._describe_value(value)}."
+        )
+
+    def _node_value(self, value: Any) -> Any:
+        if isinstance(value, _Instance):
+            return self._describe_value(value.attrs.get("data"))
+        return self._describe_value(value)
 
     def _node_reference_from_print(self, call: ast.Call) -> int | None:
         """Return the node ID printed by a supported traversal statement."""

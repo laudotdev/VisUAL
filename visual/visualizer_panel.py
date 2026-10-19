@@ -16,6 +16,9 @@ from ui.panel_icons import ICON_SIZE, panel_icon
 
 
 class VisualizerPanel(QWidget):
+    # Keep the visualization viewport stable while allowing its contents to scroll.
+    VISUALIZATION_VIEWPORT_HEIGHT = 320
+
     close_requested = Signal()
     source_requested = Signal(int, int)
 
@@ -56,10 +59,11 @@ class VisualizerPanel(QWidget):
         root.addWidget(self.status_label)
 
         self.diagram = LinkedListView()
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(self.diagram)
-        root.addWidget(scroll, 3)
+        self.visualization_scroll = QScrollArea()
+        self.visualization_scroll.setWidgetResizable(True)
+        self.visualization_scroll.setWidget(self.diagram)
+        self.visualization_scroll.setFixedHeight(self.VISUALIZATION_VIEWPORT_HEIGHT)
+        root.addWidget(self.visualization_scroll)
 
         nav = QHBoxLayout()
         self.start_button = QPushButton()
@@ -86,6 +90,7 @@ class VisualizerPanel(QWidget):
         root.addLayout(nav)
 
         explanation_group = QGroupBox("Step explanation")
+        explanation_group.setFixedHeight(75)
         explanation_layout = QVBoxLayout(explanation_group)
         self.explanation = QLabel("No trace loaded.")
         self.explanation.setWordWrap(True)

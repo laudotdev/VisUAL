@@ -23,4 +23,4 @@ where = ["."]
 include = ["core*", "ui*", "assets*", "visual*"]
 
 [tool.setuptools.package-data]
-"assets" = ["lau-pyde_logo.png", "icons/*.svg"]
+"assets" = ["VisUAL.png", "icons/*.svg"]

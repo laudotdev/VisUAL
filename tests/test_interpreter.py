@@ -248,8 +248,53 @@ node = Node(12)
     assert class_step["visualization"]["kind"] == "class_blueprint"
     assert class_step["visualization"]["class_name"] == "Node"
     assert class_step["visualization"]["attributes"] == ["data", "next"]
+    assert class_step["visualization"]["methods"] == ["__init__(self, data)"]
     creation = next(step for step in result.snapshots if step["event_type"] == "object_creation" and step["nodes"])
     assert creation["nodes"][0]["data"] == 12
+
+
+def test_constructor_states_visualize_the_actual_linked_list_and_node_objects():
+    result = ControlledInterpreter().run('''
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+class LinkedList:
+    def __init__(self):
+        self.head = None
+ll = LinkedList()
+ll.head = Node(12)
+''')
+    empty_list_step = next(step for step in result.snapshots if step["source"]["line"] == 8)
+    assert empty_list_step["visualization"]["kind"] == "linked_list_object"
+    data_step = next(step for step in result.snapshots if step["event_type"] == "value_update" and step["variables"].get("data") == 12)
+    assert data_step["visualization"]["kind"] == "object"
+    assert data_step["nodes"] == [{"id": 2, "data": 12, "next": None}]
+    next_step = next(step for step in result.snapshots if step["event_type"] == "link_change" and "next reference" in step["explanation"] and step["variables"].get("data") == 12)
+    assert next_step["visualization"]["kind"] == "object"
+    assert next_step["nodes"] == [{"id": 2, "data": 12, "next": None}]
+
+
+def test_linked_list_structure_returns_after_head_points_to_the_node():
+    result = ControlledInterpreter().run('''
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+class LinkedList:
+    def __init__(self):
+        self.head = None
+ll = LinkedList()
+ll.head = Node(12)
+ll.head.next = Node(14)
+''')
+    linked_steps = [step for step in result.snapshots if step["head_ref"] is not None]
+    assert linked_steps
+    assert all(step["visualization"]["kind"] == "linked_list" for step in linked_steps)
+    assert linked_steps[-1]["nodes"] == [
+        {"id": 2, "data": 12, "next": 3},
+        {"id": 3, "data": 14, "next": None},
+    ]
 
 
 def test_method_call_and_variable_explanation_describe_actual_references():

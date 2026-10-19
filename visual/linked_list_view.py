@@ -55,7 +55,28 @@ def blueprint_description(snapshot: dict) -> str:
     }
     lines = [f"{class_name} class blueprint"]
     lines.extend(f"{name}: {descriptions.get(name, 'is an object attribute')}" for name in visualization.get("attributes", []))
+    lines.extend(f"method {signature}" for signature in visualization.get("methods", []))
     return "\n".join(lines)
+
+
+def runtime_object_description(snapshot: dict) -> str:
+    """Describe only the actual object state represented by a snapshot."""
+    visualization = snapshot.get("visualization", {})
+    kind = visualization.get("kind")
+    if kind == "linked_list_object":
+        head = snapshot.get("head_ref")
+        return "LinkedList object\nhead: " + ("None" if head is None else f"Node object #{head}")
+    if kind != "object":
+        return ""
+    node = next((item for item in snapshot.get("nodes", []) if isinstance(item, dict)), None)
+    if node is None:
+        return f"{visualization.get('class_name', 'Object')} object"
+    next_ref = node.get("next")
+    return "\n".join([
+        f"{visualization.get('class_name', 'Object')} object #{node.get('id')}",
+        f"data: {node.get('data')}",
+        f"next: {'None' if next_ref is None else f'Node object #{next_ref}'}",
+    ])
 
 
 class LinkedListView(QWidget):
@@ -72,6 +93,11 @@ class LinkedListView(QWidget):
         return True
 
     def heightForWidth(self, width: int) -> int:
+        visualization_kind = self._snapshot.get("visualization", {}).get("kind")
+        if visualization_kind in {"class_blueprint", "object", "linked_list_object"}:
+            description = blueprint_description(self._snapshot) if visualization_kind == "class_blueprint" else runtime_object_description(self._snapshot)
+            lines = description.count("\n") + 1
+            return max(190, 58 + lines * 25)
         count = len(self._snapshot.get("nodes", []))
         if count == 0:
             return 190
@@ -100,10 +126,14 @@ class LinkedListView(QWidget):
             painter.drawText(self.rect(), Qt.AlignCenter, "No visualization snapshot available.")
             return
         if self._snapshot.get("visualization", {}).get("kind") == "class_blueprint":
-            painter.setPen(QColor("#c5cbd3"))
-            painter.setFont(QFont("Sans Serif", 12, QFont.Bold))
-            painter.drawText(self.rect(), Qt.AlignCenter, blueprint_description(self._snapshot))
+            lines = blueprint_description(self._snapshot).splitlines()
+            self._draw_card(painter, width, lines)
             return
+        if self._snapshot.get("visualization", {}).get("kind") in {"object", "linked_list_object"}:
+            lines = runtime_object_description(self._snapshot).splitlines()
+            self._draw_card(painter, width, lines)
+            return
+
         if head_ref is None:
             painter.setPen(QColor("#c5cbd3"))
             painter.setFont(QFont("Sans Serif", 12, QFont.Bold))
@@ -179,3 +209,15 @@ class LinkedListView(QWidget):
                 painter.setPen(QColor("#c5cbd3"))
                 painter.setFont(QFont("Sans Serif", 9))
                 painter.drawText(QRectF(rect.right() - 10, rect.bottom() + 4, 90, 20), Qt.AlignLeft, "None")
+
+    def _draw_card(self, painter: QPainter, width: int, lines: list[str]) -> None:
+        card_width = min(420, max(250, width - 40))
+        card_height = 28 + len(lines) * 25
+        card = QRectF((width - card_width) / 2, max(18, (self.height() - card_height) / 2), card_width, card_height)
+        painter.setPen(QPen(QColor("#78a9ff"), 2))
+        painter.setBrush(QBrush(QColor("#29384d")))
+        painter.drawRoundedRect(card, 8, 8)
+        painter.setFont(QFont("Sans Serif", 10, QFont.Bold))
+        for index, line in enumerate(lines):
+            painter.setPen(QColor("#f1f3f4" if index == 0 else "#c7d6e8"))
+            painter.drawText(QRectF(card.left() + 16, card.top() + 12 + index * 25, card.width() - 32, 22), Qt.AlignLeft | Qt.AlignVCenter, line)

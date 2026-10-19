@@ -501,17 +501,21 @@ class ControlledInterpreter:
                     ordered.append(current)
                     seen.add(current.identity)
                 current = current.attrs.get("next")
+        head_ref = next((item.attrs.get("head").identity for item in list_instances if isinstance(item.attrs.get("head"), _Instance)), None)
         if event_type == "object_creation":
             for instance in node_instances:
                 if instance.identity not in seen:
                     ordered.append(instance)
                     seen.add(instance.identity)
+        if head_ref is None and self.frames and isinstance(self.frames[-1].get("self"), _Instance):
+            active_object = self.frames[-1]["self"]
+            if active_object.class_name == "Node" and active_object.identity not in seen:
+                ordered.append(active_object)
         nodes = [{
             "id": item.identity,
             "data": self._serialize_value(item.attrs.get("data")),
             "next": item.attrs.get("next").identity if isinstance(item.attrs.get("next"), _Instance) and item.attrs.get("next").class_name == "Node" else None,
         } for item in ordered]
-        head_ref = next((item.attrs.get("head").identity for item in list_instances if isinstance(item.attrs.get("head"), _Instance)), None)
         variables: dict[str, Any] = {}
         for frame in [self.globals, *self.frames]:
             for name, value in frame.items():
@@ -537,11 +541,31 @@ class ControlledInterpreter:
         }
 
     def _visualization_metadata(self, node: ast.AST | None, event_type: str) -> dict:
+        has_linked_head = any(
+            isinstance(item.attrs.get("head"), _Instance)
+            for item in self.instances
+            if item.class_name == "LinkedList"
+        )
+        if event_type == "object_creation" and isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
+            if node.value.func.id == "Node" and not has_linked_head:
+                return {"kind": "object", "class_name": "Node"}
+            if node.value.func.id == "LinkedList":
+                return {"kind": "linked_list_object", "class_name": "LinkedList"}
+        if self.frames and isinstance(self.frames[-1].get("self"), _Instance):
+            active_class = self.frames[-1]["self"].class_name
+            if active_class == "Node" and not has_linked_head:
+                return {"kind": "object", "class_name": "Node"}
+            if active_class == "LinkedList" and self.frames[-1]["self"].attrs.get("head") is None:
+                return {"kind": "linked_list_object", "class_name": "LinkedList"}
         if event_type != "class_definition" or not isinstance(node, ast.ClassDef):
             return {"kind": "linked_list"}
         attributes = []
+        methods = []
         for function in node.body:
-            if not isinstance(function, ast.FunctionDef) or function.name != "__init__":
+            if not isinstance(function, ast.FunctionDef):
+                continue
+            methods.append(f"{function.name}({', '.join(argument.arg for argument in function.args.args)})")
+            if function.name != "__init__":
                 continue
             for statement in function.body:
                 if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
@@ -551,7 +575,7 @@ class ControlledInterpreter:
                     if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name) and target.value.id == "self":
                         if target.attr not in attributes:
                             attributes.append(target.attr)
-        return {"kind": "class_blueprint", "class_name": node.name, "attributes": attributes}
+        return {"kind": "class_blueprint", "class_name": node.name, "attributes": attributes, "methods": methods}
 
     def _variable_explanations(self, variables: dict[str, Any], node: ast.AST | None, event_type: str) -> dict[str, dict[str, Any]]:
         explanations = {}

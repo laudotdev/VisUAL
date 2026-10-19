@@ -1381,11 +1381,15 @@ class MainWindow(QMainWindow):
         self._visual_source_text = source
         self._visual_stdout.clear()
         self._visual_stderr.clear()
+        """this comment is for output pannel when running on visual
         self.output_panel.clear()
         self.output_panel.stop_input()
         self._output_line_tail = ""
         self._show_bottom_panel("output")
         self._append_output("Running on visualization.\n")
+        """
+        self._bottom_minimized = True
+        self._restore_layout()
         process = QProcess(self)
         self._visual_process = process
         process.setWorkingDirectory(str(Path(__file__).resolve().parents[1]))

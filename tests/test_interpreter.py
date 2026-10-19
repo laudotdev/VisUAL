@@ -379,3 +379,44 @@ ll.head = Node(12)
     assert set(entries) == {"self", "self.data", "data"}
     assert "ll" not in entries
     assert "self.next" not in entries
+
+
+def test_variable_explanation_includes_identity_access_paths_and_attribute_owner():
+    result = ControlledInterpreter().run('''
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+class LinkedList:
+    def __init__(self):
+        self.head = None
+ll = LinkedList()
+ll.head = Node(12)
+''')
+    step = next(step for step in result.snapshots if "self.data" in step["variable_explanations"])
+    node_id = step["variable_explanations"]["self"]["reference_id"]
+    self_entry = step["variable_explanations"]["self"]
+    data_entry = step["variable_explanations"]["self.data"]
+    assert self_entry["object_type"] == "Node"
+    assert self_entry["access_paths"] == ["self"]
+    assert self_entry["reference_id"] == node_id
+    assert data_entry["belongs_to"] == {"object_type": "Node", "reference_id": node_id}
+
+
+def test_object_access_paths_include_aliases_from_the_current_state():
+    result = ControlledInterpreter().run('''
+class Node:
+    def __init__(self, data):
+        self.data = data
+        self.next = None
+class LinkedList:
+    def __init__(self):
+        self.head = None
+    def inspect(self):
+        alias = self
+        return alias
+ll = LinkedList()
+ll.inspect()
+''')
+    step = next(step for step in result.snapshots if step["event_type"] == "method_call" and "inspect" in step["explanation"])
+    assert step["variable_explanations"]["self"]["access_paths"] == ["ll", "self"]

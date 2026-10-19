@@ -311,7 +311,11 @@ class ControlledInterpreter:
             if isinstance(function, _Method):
                 call_text = ast.unparse(node)
                 parameters = [arg.arg for arg in function.function.args.args]
-                frame = {"self": function.owner}
+                frame = {
+                    "self": function.owner,
+                    "__class_name": function.owner.class_name,
+                    "__method_name": function.function.name,
+                }
                 frame.update(zip(parameters[1:] if parameters and parameters[0] == "self" else parameters, args))
                 self.frames.append(frame)
                 try:
@@ -398,7 +402,11 @@ class ControlledInterpreter:
             expected = parameters
         if len(args) != len(expected):
             raise RuntimeError(f"Method {function.name}() expects {len(expected)} argument(s), got {len(args)}.")
-        frame = {"self": owner}
+        frame = {
+            "self": owner,
+            "__class_name": owner.class_name,
+            "__method_name": function.name,
+        }
         frame.update(zip(expected, args))
         self.frames.append(frame)
         try:
@@ -548,6 +556,7 @@ class ControlledInterpreter:
     def _variable_explanations(self, variables: dict[str, Any], node: ast.AST | None, event_type: str) -> dict[str, dict[str, Any]]:
         explanations = {}
         relevant = self._relevant_variable_names(node, event_type)
+        access_paths = self._access_paths(variables)
         aliases: dict[tuple[str, int], list[str]] = {}
         for name, value in variables.items():
             if isinstance(value, dict) and isinstance(value.get("ref"), int):
@@ -556,7 +565,11 @@ class ControlledInterpreter:
             if relevant is not None and name not in relevant:
                 continue
             if isinstance(value, dict) and value.get("class") == "Node":
-                explanations[name] = {"value": value, "explanation": f"Refers to the node containing {self._node_data(value.get('ref'))}."}
+                explanations[name] = {
+                    "value": value,
+                    "explanation": f"Refers to the node containing {self._node_data(value.get('ref'))}.",
+                    **self._reference_metadata(value, access_paths),
+                }
                 instance = next((item for item in self.instances if item.identity == value.get("ref")), None)
                 if instance is not None:
                     selected_attributes = (
@@ -567,7 +580,14 @@ class ControlledInterpreter:
                         key = f"{name}.{attr}"
                         if selected_attributes and attr not in selected_attributes:
                             continue
-                        explanations[key] = {"value": self._serialize_value(attr_value), "explanation": self._attribute_explanation(attr, attr_value)}
+                        entry = {
+                            "value": self._serialize_value(attr_value),
+                            "explanation": self._attribute_explanation(attr, attr_value),
+                            "belongs_to": {"object_type": instance.class_name, "reference_id": instance.identity},
+                        }
+                        if isinstance(attr_value, _Instance):
+                            entry.update(self._reference_metadata(self._serialize_value(attr_value), access_paths))
+                        explanations[key] = entry
             elif isinstance(value, dict) and value.get("class") == "LinkedList":
                 peers = [peer for peer in aliases.get(("LinkedList", value["ref"]), []) if peer != name]
                 if name == "self" and peers:
@@ -576,7 +596,11 @@ class ControlledInterpreter:
                     explanation = "The linked list object used to call the method."
                 else:
                     explanation = "Refers to the linked list object used by the program."
-                explanations[name] = {"value": value, "explanation": explanation}
+                explanations[name] = {
+                    "value": value,
+                    "explanation": explanation,
+                    **self._reference_metadata(value, access_paths),
+                }
             else:
                 if self.frames and name in self.frames[-1] and name != "self":
                     explanation = "Argument or local value used by the current method."
@@ -584,6 +608,43 @@ class ControlledInterpreter:
                     explanation = "Current value used by the program."
                 explanations[name] = {"value": value, "explanation": explanation}
         return explanations
+
+    def _reference_metadata(self, value: dict[str, Any], access_paths: dict[int, list[str]]) -> dict[str, Any]:
+        identity = value.get("ref")
+        context = self.frames[-1] if self.frames else {}
+        return {
+            "object_type": value.get("class"),
+            "reference_id": identity,
+            "access_paths": access_paths.get(identity, []),
+            "class_name": context.get("__class_name"),
+            "method_name": context.get("__method_name"),
+        }
+
+    def _access_paths(self, variables: dict[str, Any]) -> dict[int, list[str]]:
+        paths: dict[int, set[str]] = {}
+        queue: list[tuple[_Instance, str]] = []
+        instances = {instance.identity: instance for instance in self.instances}
+        for name, value in variables.items():
+            if isinstance(value, dict) and isinstance(value.get("ref"), int):
+                identity = value["ref"]
+                paths.setdefault(identity, set()).add(name)
+                instance = instances.get(identity)
+                if instance is not None:
+                    queue.append((instance, name))
+        visited: set[tuple[int, str]] = set()
+        while queue:
+            instance, path = queue.pop(0)
+            marker = (instance.identity, path)
+            if marker in visited:
+                continue
+            visited.add(marker)
+            for attribute, value in instance.attrs.items():
+                if not isinstance(value, _Instance):
+                    continue
+                child_path = f"{path}.{attribute}"
+                paths.setdefault(value.identity, set()).add(child_path)
+                queue.append((value, child_path))
+        return {identity: sorted(values) for identity, values in paths.items()}
 
     def _relevant_variable_names(self, node: ast.AST | None, event_type: str) -> set[str] | None:
         if node is None:

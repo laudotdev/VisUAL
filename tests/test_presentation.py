@@ -29,7 +29,7 @@ def test_keeps_unknown_or_invalid_references_visible():
 
 
 def test_explanation_formatter_names_object_type_before_identity():
-    assert format_explanation_value({"ref": 4, "class": "Node"}) == "Node object (reference 4)"
+    assert format_explanation_value({"ref": 4, "class": "Node"}) == "Node object #4"
 
 
 def test_variable_explanations_are_spaced_as_readable_blocks():
@@ -37,8 +37,8 @@ def test_variable_explanations_are_spaced_as_readable_blocks():
         "ll": {"value": {"ref": 1, "class": "LinkedList"}, "explanation": "The caller's list."},
         "data": {"value": 13, "explanation": "Argument for the method."},
     })
-    assert rendered == (
-        "ll\nCurrent value: LinkedList object (reference 1)\n"
-        "Explanation: The caller's list.\n\n"
-        "data\nCurrent value: 13\nExplanation: Argument for the method."
-    )
+    assert 'color:#8be9fd' in rendered
+    assert 'LinkedList object #1' in rendered
+    assert "The caller&#x27;s list." not in rendered
+    assert "The caller's list." in rendered
+    assert rendered.count('margin-bottom:12px') == 2

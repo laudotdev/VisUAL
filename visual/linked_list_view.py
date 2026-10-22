@@ -29,6 +29,10 @@ def reachable_node_positions(snapshot: dict) -> tuple[list[dict], dict[int, int]
         positions[current] = len(ordered) + 1
         ordered.append(by_id[current])
         current = by_id[current].get("next")
+    deleted = snapshot.get("deleted_node_ref")
+    if isinstance(deleted, int) and deleted in by_id and deleted not in visited:
+        positions[deleted] = len(ordered) + 1
+        ordered.append(by_id[deleted])
     return ordered, positions, cycle
 
 
@@ -59,6 +63,14 @@ def blueprint_description(snapshot: dict) -> str:
     return "\n".join(lines)
 
 
+def attribute_display_line(name: str, value, change: dict | None = None) -> str:
+    if change and change.get("name") == name:
+        return f"{name}: {change.get('before')} → {change.get('after')}"
+    if name == "next" and isinstance(value, dict):
+        value = f"Node object #{value.get('ref')}"
+    return f"{name}: {value}"
+
+
 def runtime_object_description(snapshot: dict) -> str:
     """Describe only the actual object state represented by a snapshot."""
     visualization = snapshot.get("visualization", {})
@@ -68,15 +80,47 @@ def runtime_object_description(snapshot: dict) -> str:
         return "LinkedList object\nhead: " + ("None" if head is None else f"Node object #{head}")
     if kind != "object":
         return ""
-    node = next((item for item in snapshot.get("nodes", []) if isinstance(item, dict)), None)
+    reference_id = visualization.get("reference_id")
+    node = next(
+        (item for item in snapshot.get("nodes", [])
+         if isinstance(item, dict) and (reference_id is None or item.get("id") == reference_id)),
+        None,
+    )
     if node is None:
         return f"{visualization.get('class_name', 'Object')} object"
-    next_ref = node.get("next")
-    return "\n".join([
-        f"{visualization.get('class_name', 'Object')} object #{node.get('id')}",
-        f"data: {node.get('data')}",
-        f"next: {'None' if next_ref is None else f'Node object #{next_ref}'}",
-    ])
+    attributes = visualization.get("attributes", ["data", "next"])
+    title = visualization.get("expression") or (
+        f"{visualization.get('class_name', 'Object')} object #{node.get('id')}"
+    )
+    change = visualization.get("attribute_change")
+    lines = [title]
+    if "data" in attributes:
+        lines.append(attribute_display_line("data", node.get("data"), change))
+    if "next" in attributes:
+        next_ref = node.get("next")
+        next_value = None if next_ref is None else {"ref": next_ref}
+        lines.append(attribute_display_line("next", next_value, change))
+    return "\n".join(lines)
+
+
+def visualization_summary_lines(visualization: dict) -> list[str]:
+    lines = []
+    if visualization.get("evaluation"):
+        lines.append(visualization["evaluation"])
+    if visualization.get("loop_iteration") is not None:
+        iteration = visualization["loop_iteration"]
+        lines.append("Loop finished" if iteration == "finished" else f"Iteration: {iteration}")
+    variable_change = visualization.get("variable_change")
+    if variable_change and variable_change.get("before") != "not set":
+        lines.append(
+            f"{variable_change['name']}: {variable_change['before']} → "
+            f"{variable_change['after']}"
+        )
+    active_attributes = visualization.get("active_object", {}).get("attributes", [])
+    if visualization.get("attribute_change") and not active_attributes:
+        change = visualization["attribute_change"]
+        lines.append(f"{change['name']}: {change['before']} → {change['after']}")
+    return lines
 
 
 class LinkedListView(QWidget):
@@ -102,10 +146,16 @@ class LinkedListView(QWidget):
         if count == 0:
             return 190
         node_w, node_h, gap_x, gap_y, margin_x, margin_y = 155, 90, 44, 48, 20, 48
+        visualization = self._snapshot.get("visualization", {})
+        active_object = visualization.get("active_object", {})
+        declaration = visualization.get("declaration") or active_object.get("expression")
+        attribute_count = len(active_object.get("attributes", []))
+        summary_count = len(visualization_summary_lines(visualization))
+        declaration_offset = 26 + attribute_count * 16 + summary_count * 16 if declaration else 0
         usable = max(1, width - 2 * margin_x)
         per_row = max(1, (usable + gap_x) // (node_w + gap_x))
         rows = (count + per_row - 1) // per_row
-        return margin_y + rows * node_h + max(0, rows - 1) * gap_y + 30
+        return margin_y + declaration_offset + rows * node_h + max(0, rows - 1) * gap_y + 30
 
     def set_snapshot(self, snapshot: dict) -> None:
         self._snapshot = snapshot or {}
@@ -125,6 +175,19 @@ class LinkedListView(QWidget):
             painter.setPen(QColor("#c5cbd3"))
             painter.drawText(self.rect(), Qt.AlignCenter, "No visualization snapshot available.")
             return
+        visualization = self._snapshot.get("visualization", {})
+        operation = visualization.get("operation")
+        operation_offset = 0
+        if operation:
+            color = QColor(visualization.get("operation_color", "#78a9ff"))
+            badge = QRectF(20, 8, max(112, len(operation) * 9 + 24), 22)
+            painter.setPen(QPen(color, 1.5))
+            painter.setBrush(QBrush(color))
+            painter.drawRoundedRect(badge, 5, 5)
+            painter.setPen(QColor("#202124"))
+            painter.setFont(QFont("Sans Serif", 8, QFont.Bold))
+            painter.drawText(badge, Qt.AlignCenter, operation)
+            operation_offset = 28
         if self._snapshot.get("visualization", {}).get("kind") == "class_blueprint":
             lines = blueprint_description(self._snapshot).splitlines()
             self._draw_card(painter, width, lines)
@@ -145,7 +208,7 @@ class LinkedListView(QWidget):
             return
 
         node_w, node_h, gap_x, gap_y = 148, 62, 44, 48
-        margin_x, margin_y = 20, 48
+        margin_x, margin_y = 20, 48 + operation_offset
         usable = max(1, width - 2 * margin_x)
         per_row = max(1, (usable + gap_x) // (node_w + gap_x))
         rects = {}
@@ -156,6 +219,34 @@ class LinkedListView(QWidget):
             y = margin_y + row * (node_h + gap_y)
             rects[node["id"]] = QRectF(x, y, node_w, node_h)
             node_rank[node["id"]] = i + 1
+
+        active_object = visualization.get("active_object", {})
+        declaration = visualization.get("declaration") or active_object.get("expression")
+        declaration_offset = 0
+        if declaration:
+            painter.setPen(QColor("#8be9fd"))
+            painter.setFont(QFont("Sans Serif", 9, QFont.Bold))
+            painter.drawText(20, 22 + operation_offset, declaration)
+            declaration_offset = 26
+            values = active_object.get("values", {})
+            attributes = active_object.get("attributes", [])
+            for index, attribute in enumerate(attributes, start=1):
+                value = values.get(attribute)
+                painter.setPen(QColor("#c7d6e8"))
+                painter.setFont(QFont("Sans Serif", 8))
+                painter.drawText(20, 22 + operation_offset + index * 16, attribute_display_line(
+                    attribute, value, active_object.get("attribute_change")
+                ))
+            declaration_offset += len(attributes) * 16
+            for index, detail in enumerate(visualization_summary_lines(visualization), start=1):
+                painter.setPen(QColor("#c7d6e8"))
+                painter.setFont(QFont("Sans Serif", 8))
+                painter.drawText(20, 22 + operation_offset + (len(attributes) + index) * 16, detail)
+            declaration_offset += len(visualization_summary_lines(visualization)) * 16
+
+        if declaration_offset:
+            for rect in rects.values():
+                rect.translate(0, declaration_offset)
 
         # Head marker points to the first node when visible.
         first = nodes[0]
@@ -168,8 +259,17 @@ class LinkedListView(QWidget):
         for node in nodes:
             rect = rects[node["id"]]
             is_traversed = node["id"] == traversed_ref
-            painter.setPen(QPen(QColor("#66bb6a" if is_traversed else "#78a9ff"), 2 if is_traversed else 1.5))
-            painter.setBrush(QBrush(QColor("#315c38" if is_traversed else "#29384d")))
+            is_deleted = node["id"] == self._snapshot.get("deleted_node_ref")
+            operation_color = visualization.get("operation_color") or "#78a9ff"
+            active_ref = visualization.get("active_object", {}).get("reference_id")
+            is_active_operation = node["id"] == active_ref or is_deleted
+            border_color = "#ff5555" if is_deleted else ("#66bb6a" if is_traversed else (operation_color if is_active_operation else "#78a9ff"))
+            fill_color = "#5c252d" if is_deleted else ("#315c38" if is_traversed else "#29384d")
+            border = QColor(border_color)
+            if not border.isValid():
+                border = QColor("#78a9ff")
+            painter.setPen(QPen(border, 2 if is_deleted or is_traversed else 1.5))
+            painter.setBrush(QBrush(QColor(fill_color)))
             painter.drawRoundedRect(rect, 7, 7)
             split_x = rect.left() + rect.width() * 0.66     
             painter.drawLine(int(split_x), int(rect.top()), int(split_x), int(rect.bottom()))

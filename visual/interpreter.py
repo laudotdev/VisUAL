@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .analyzer import analyze_source
+from .operation_colors import OPERATION_COLORS
 from .trace import freeze_snapshot
 
 
@@ -86,6 +87,13 @@ class ControlledInterpreter:
         self.max_integer_bits = 4096
         self._traversed_node_ref: int | None = None
         self._pending_explanation: str | None = None
+        self._pending_attribute_change: dict[str, Any] | None = None
+        self._pending_variable_change: dict[str, Any] | None = None
+        self._pending_evaluation: str | None = None
+        self._pending_loop_iteration: int | str | None = None
+        self._pending_deleted_node_ref: int | None = None
+        self._active_creation_expression: str | None = None
+        self._active_creation_target: str | None = None
 
     def run(self, source: str) -> ExecutionResult:
         self._reset()
@@ -147,17 +155,42 @@ class ControlledInterpreter:
         self._tick()
         event = "statement"
         explanation = f"Executed {type(node).__name__}."
+        self._pending_attribute_change = None
+        self._pending_variable_change = None
+        self._pending_evaluation = None
+        self._pending_loop_iteration = None
+        self._pending_deleted_node_ref = None
+        previous_creation_expression = self._active_creation_expression
+        previous_creation_target = self._active_creation_target
+        creation_context_set = False
         if isinstance(node, ast.ClassDef):
             event, explanation = "class_definition", self._class_explanation(node)
         elif isinstance(node, ast.FunctionDef):
             self._locals()[node.name] = node
             event, explanation = "function_definition", f"Defined method {node.name}()."
         elif isinstance(node, ast.Assign):
+            if (
+                isinstance(node.value, ast.Call)
+                and isinstance(node.value.func, ast.Name)
+                and node.value.func.id in self.classes
+            ):
+                self._active_creation_expression = ast.unparse(node)
+                self._active_creation_target = ast.unparse(node.targets[0])
+                creation_context_set = True
             value = self._eval(node.value)
             for target in node.targets:
                 self._assign(target, value)
             event, explanation = self._assignment_event(node, value)
             explanation = self._pending_explanation or explanation
+            if (
+                any(isinstance(target, ast.Name) for target in node.targets)
+                and not (isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id in self.classes)
+            ):
+                target = next(target for target in node.targets if isinstance(target, ast.Name))
+                self._pending_evaluation = (
+                    f"{ast.unparse(target)} = {ast.unparse(node.value)} → "
+                    f"{self._transition_value(value)}"
+                )
             if (
                 isinstance(node.value, ast.Call)
                 and isinstance(node.value.func, ast.Name)
@@ -184,6 +217,7 @@ class ControlledInterpreter:
                 self._traversed_node_ref = self._node_reference_from_print(node.value)
                 emitted = " ".join(str(self._display_value(value)) for value in values)
                 self._append_output(emitted)
+                self._pending_evaluation = f"{ast.unparse(node.value)} → {emitted}"
                 event, explanation = "output", f"Printed {emitted!r} to Program Output."
             else:
                 self._eval(node.value)
@@ -201,6 +235,8 @@ class ControlledInterpreter:
             while bool(self._eval(node.test)):
                 self._tick()
                 iteration += 1
+                self._pending_evaluation = f"{ast.unparse(node.test)} → True"
+                self._pending_loop_iteration = iteration
                 self._record(node, "condition", f"Condition `{ast.unparse(node.test)}` evaluated to True; while-loop iteration {iteration} runs.")
                 try:
                     self._exec_block(node.body)
@@ -209,6 +245,8 @@ class ControlledInterpreter:
                 except _BreakSignal:
                     break
             else:
+                self._pending_evaluation = f"{ast.unparse(node.test)} → False"
+                self._pending_loop_iteration = "finished"
                 self._record(node, "condition", f"Condition `{ast.unparse(node.test)}` evaluated to False; the while-loop finished.")
             return
         elif isinstance(node, ast.Return):
@@ -224,6 +262,9 @@ class ControlledInterpreter:
         else:
             raise RuntimeError(f"Unsupported statement: {type(node).__name__}")
         self._record(node, event, explanation)
+        if creation_context_set:
+            self._active_creation_expression = previous_creation_expression
+            self._active_creation_target = previous_creation_target
 
     def _assignment_event(self, node: ast.AST, value: Any) -> tuple[str, str]:
         if isinstance(node, ast.Assign):
@@ -245,6 +286,11 @@ class ControlledInterpreter:
         if isinstance(target, ast.Name):
             previous = self._locals().get(target.id, _MISSING)
             self._locals()[target.id] = value
+            self._pending_variable_change = {
+                "name": target.id,
+                "before": self._transition_value(previous),
+                "after": self._transition_value(value),
+            }
             self._pending_explanation = f"Variable `{target.id}` changed from {self._describe_value(previous)} to {self._describe_value(value)}."
         elif isinstance(target, ast.Attribute):
             owner = self._eval(target.value)
@@ -254,6 +300,21 @@ class ControlledInterpreter:
                 raise RuntimeError("Dunder attributes are not supported.")
             previous = owner.attrs.get(target.attr, _MISSING)
             owner.attrs[target.attr] = value
+            if (
+                isinstance(previous, _Instance)
+                and previous.class_name == "Node"
+                and value is not previous
+                and not self._node_is_reachable(previous)
+            ):
+                self._pending_deleted_node_ref = previous.identity
+            self._pending_attribute_change = {
+                "owner_id": owner.identity,
+                "name": target.attr,
+                "before": self._transition_value(previous),
+                "after": self._transition_value(value),
+                "before_id": previous.identity if isinstance(previous, _Instance) else None,
+                "after_id": value.identity if isinstance(value, _Instance) else None,
+            }
             self._pending_explanation = self._reference_explanation(owner, target.attr, value, previous)
         elif isinstance(target, (ast.Tuple, ast.List)):
             if not isinstance(value, (tuple, list)) or len(value) != len(target.elts):
@@ -308,6 +369,11 @@ class ControlledInterpreter:
                     self.output.append(" ".join(str(self._display_value(value)) for value in args))
                     return None
                 if name in self.classes:
+                    if self._active_creation_target:
+                        rendered_args = ", ".join(self._format_call_argument(arg) for arg in args)
+                        self._active_creation_expression = (
+                            f"{self._active_creation_target} = {name}({rendered_args})"
+                        )
                     return self._construct(name, args)
                 if name in {"int", "str", "bool"} and len(args) == 1:
                     return {"int": int, "str": str, "bool": bool}[name](args[0])
@@ -367,6 +433,21 @@ class ControlledInterpreter:
                 return value[index]
             raise RuntimeError("Subscript access is supported only for literal sequences.")
         raise RuntimeError(f"Unsupported expression: {type(node).__name__}")
+
+    def _transition_value(self, value: Any) -> Any:
+        if value is _MISSING:
+            return "not set"
+        if isinstance(value, _Instance):
+            if value.class_name == "Node":
+                return f"Node({self._describe_value(value.attrs.get('data'))})"
+            return f"{value.class_name} object #{value.identity}"
+        return self._serialize_value(value)
+
+    @staticmethod
+    def _format_call_argument(value: Any) -> str:
+        if isinstance(value, _Instance):
+            return f"{value.class_name} object #{value.identity}"
+        return repr(value) if isinstance(value, str) else str(value)
 
     def _construct(self, class_name: str, args: list[Any]) -> _Instance:
         instance = _Instance(class_name, self.next_identity)
@@ -512,6 +593,10 @@ class ControlledInterpreter:
                 if instance.identity not in seen:
                     ordered.append(instance)
                     seen.add(instance.identity)
+        if event_type == "link_change" and self._pending_deleted_node_ref is not None:
+            deleted = next((item for item in node_instances if item.identity == self._pending_deleted_node_ref), None)
+            if deleted is not None and deleted.identity not in seen:
+                ordered.append(deleted)
         if head_ref is None and self.frames and isinstance(self.frames[-1].get("self"), _Instance):
             active_object = self.frames[-1]["self"]
             if active_object.class_name == "Node" and active_object.identity not in seen:
@@ -529,6 +614,7 @@ class ControlledInterpreter:
                 variables[name] = self._serialize_value(value)
         variable_explanations = self._variable_explanations(variables, node, event_type)
         visualization = self._visualization_metadata(node, event_type)
+        self._decorate_visualization(visualization, node, event_type)
         source = {
             "line": getattr(node, "lineno", 1) if node is not None else 1,
             "column": getattr(node, "col_offset", 0) + 1 if node is not None else 1,
@@ -543,7 +629,135 @@ class ControlledInterpreter:
             "visualization": visualization,
             "program_output": list(self.output), "status": self.status,
             "traversed_node_ref": self._traversed_node_ref,
+            "deleted_node_ref": self._pending_deleted_node_ref if event_type == "link_change" else None,
         }
+
+    def _decorate_visualization(self, visualization: dict, node: ast.AST | None, event_type: str) -> None:
+        declaration = self._active_creation_expression
+        if event_type == "condition" and isinstance(node, ast.While):
+            declaration = f"while {ast.unparse(node.test)}"
+        elif declaration is None and node is not None:
+            declaration = ast.unparse(node)
+        if declaration:
+            visualization.setdefault("declaration", declaration)
+
+        if self._pending_attribute_change:
+            visualization["attribute_change"] = {
+                key: value
+                for key, value in self._pending_attribute_change.items()
+                if key not in {"owner_id", "before_id", "after_id"}
+            }
+        if self._pending_variable_change:
+            visualization["variable_change"] = dict(self._pending_variable_change)
+        if self._pending_evaluation:
+            visualization["evaluation"] = self._pending_evaluation
+        if self._pending_loop_iteration is not None:
+            visualization["loop_iteration"] = self._pending_loop_iteration
+
+        operation = self._operation_for_snapshot(node, event_type)
+        if operation:
+            visualization["operation"] = operation
+            visualization["operation_color"] = OPERATION_COLORS[operation]
+
+        owner_id = self._pending_attribute_change.get("owner_id") if self._pending_attribute_change else None
+        active_node = next(
+            (item for item in self.instances
+             if item.identity == owner_id and item.class_name == "Node"),
+            None,
+        )
+        if active_node is None and event_type == "object_creation" and isinstance(node, ast.Assign):
+            active_node = next(
+                (item for item in reversed(self.instances) if item.class_name == "Node"),
+                None,
+            )
+        if operation == "INSERTION" and self._pending_attribute_change:
+            change = self._pending_attribute_change
+            owner = next((item for item in self.instances if item.identity == owner_id), None)
+            use_after = owner is None or owner.class_name != "Node" or change.get("before") in {None, "not set"}
+            preferred_id = change.get("after_id") if use_after else owner_id
+            preferred = next(
+                (item for item in self.instances
+                 if item.identity == preferred_id and item.class_name == "Node"),
+                None,
+            )
+            if preferred is not None:
+                active_node = preferred
+        if active_node is not None and visualization.get("kind") == "linked_list":
+            visualization["active_object"] = self._object_visualization_metadata("object", active_node)
+
+    def _operation_for_snapshot(self, node: ast.AST | None, event_type: str) -> str | None:
+        class_name = self.frames[-1].get("__class_name") if self.frames else None
+        method_name = self.frames[-1].get("__method_name") if self.frames else None
+        if method_name == "__init__":
+            return "NEW NODE" if class_name == "Node" else None
+        method_operation = self._method_operation(class_name, method_name)
+        if method_operation:
+            return method_operation
+        if event_type == "value_update":
+            return "UPDATE"
+        if event_type == "object_creation" and isinstance(node, ast.Assign):
+            if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
+                if node.value.func.id == "Node" and self._method_creates_node(class_name, method_name):
+                    return "INSERTION"
+                return "NEW NODE"
+        if event_type == "link_change":
+            change = self._pending_attribute_change or {}
+            if self._pending_deleted_node_ref is not None:
+                return "DELETION"
+            if self._method_creates_node(class_name, method_name):
+                return "INSERTION"
+            if change.get("after_id") is not None and change.get("before") in {None, "not set"}:
+                return "NEW NODE"
+            return None
+        if self._method_is_traversal(class_name, method_name):
+            return "TRAVERSAL"
+        return None
+
+    def _method_operation(self, class_name: str | None, method_name: str | None) -> str | None:
+        function = self._method_ast(class_name, method_name)
+        if function is None or method_name == "__init__":
+            return None
+        if self._method_creates_node(class_name, method_name):
+            return "INSERTION"
+        if method_name.lower().startswith(("delete", "delet", "remove")):
+            return "DELETION"
+        if any(isinstance(item, ast.While) for item in ast.walk(function)):
+            return "TRAVERSAL"
+        if any(
+            isinstance(item, ast.Attribute) and item.attr == "data"
+            for item in ast.walk(function)
+        ):
+            return "UPDATE"
+        return None
+
+    def _method_ast(self, class_name: str | None, method_name: str | None) -> ast.FunctionDef | None:
+        if not class_name or not method_name:
+            return None
+        return self._find_method(class_name, method_name)
+
+    def _method_creates_node(self, class_name: str | None, method_name: str | None) -> bool:
+        function = self._method_ast(class_name, method_name)
+        return bool(function and any(
+            isinstance(item, ast.Call) and isinstance(item.func, ast.Name) and item.func.id == "Node"
+            for item in ast.walk(function)
+        ))
+
+    def _method_is_traversal(self, class_name: str | None, method_name: str | None) -> bool:
+        function = self._method_ast(class_name, method_name)
+        return bool(function and any(isinstance(item, ast.While) for item in ast.walk(function)))
+
+    def _node_is_reachable(self, target: _Instance) -> bool:
+        for linked_list in (item for item in self.instances if item.class_name == "LinkedList"):
+            current = linked_list.attrs.get("head")
+            visited: set[int] = set()
+            while isinstance(current, _Instance) and current.class_name == "Node":
+                if current.identity in visited:
+                    break
+                if current is target:
+                    return True
+                visited.add(current.identity)
+                current = current.attrs.get("next")
+        return False
 
     def _visualization_metadata(self, node: ast.AST | None, event_type: str) -> dict:
         has_linked_head = any(
@@ -552,18 +766,32 @@ class ControlledInterpreter:
             if item.class_name == "LinkedList"
         )
         if event_type == "object_creation" and isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name):
+            instance = next((item for item in reversed(self.instances) if item.class_name == node.value.func.id), None)
             if node.value.func.id == "Node" and not has_linked_head:
-                return {"kind": "object", "class_name": "Node"}
+                return self._object_visualization_metadata("object", instance)
             if node.value.func.id == "LinkedList":
-                return {"kind": "linked_list_object", "class_name": "LinkedList"}
+                return self._object_visualization_metadata("linked_list_object", instance)
+        if event_type == "method_call" and isinstance(node, ast.Call):
+            return {"kind": "linked_list", "declaration": ast.unparse(node)}
         if self.frames and isinstance(self.frames[-1].get("self"), _Instance):
-            active_class = self.frames[-1]["self"].class_name
-            if active_class == "Node" and not has_linked_head:
-                return {"kind": "object", "class_name": "Node"}
-            if active_class == "LinkedList" and self.frames[-1]["self"].attrs.get("head") is None:
-                return {"kind": "linked_list_object", "class_name": "LinkedList"}
+            active_object = self.frames[-1]["self"]
+            active_class = active_object.class_name
+            if active_class == "Node":
+                metadata = self._object_visualization_metadata("object", active_object)
+                if has_linked_head:
+                    return {"kind": "linked_list", "active_object": metadata}
+                return metadata
+            if active_class == "LinkedList" and active_object.attrs.get("head") is None:
+                return self._object_visualization_metadata("linked_list_object", active_object)
         if event_type != "class_definition" or not isinstance(node, ast.ClassDef):
-            return {"kind": "linked_list"}
+            metadata = {"kind": "linked_list"}
+            if self._pending_attribute_change:
+                metadata["attribute_change"] = {
+                    key: value
+                    for key, value in self._pending_attribute_change.items()
+                    if key not in {"owner_id", "before_id", "after_id"}
+                }
+            return metadata
         attributes = []
         methods = []
         for function in node.body:
@@ -581,6 +809,31 @@ class ControlledInterpreter:
                         if target.attr not in attributes:
                             attributes.append(target.attr)
         return {"kind": "class_blueprint", "class_name": node.name, "attributes": attributes, "methods": methods}
+
+    def _object_visualization_metadata(self, kind: str, instance: _Instance | None) -> dict:
+        metadata = {
+            "kind": kind,
+            "class_name": instance.class_name if instance else "Object",
+        }
+        if instance is not None:
+            metadata["reference_id"] = instance.identity
+            metadata["attributes"] = list(instance.attrs)
+            metadata["values"] = {
+                name: self._serialize_value(value)
+                for name, value in instance.attrs.items()
+            }
+            if (
+                self._pending_attribute_change
+                and self._pending_attribute_change["owner_id"] == instance.identity
+            ):
+                metadata["attribute_change"] = {
+                    key: value
+                    for key, value in self._pending_attribute_change.items()
+                    if key not in {"owner_id", "before_id", "after_id"}
+                }
+        if self._active_creation_expression:
+            metadata["expression"] = self._active_creation_expression
+        return metadata
 
     def _variable_explanations(self, variables: dict[str, Any], node: ast.AST | None, event_type: str) -> dict[str, dict[str, Any]]:
         explanations = {}

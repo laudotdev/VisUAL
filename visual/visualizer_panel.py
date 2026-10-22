@@ -4,15 +4,16 @@ from __future__ import annotations
 from html import escape
 import re
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QPoint
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit,
-    QScrollArea, QGroupBox, QPlainTextEdit,
+    QScrollArea, QGroupBox, QPlainTextEdit, QFrame,
 )
 
 from PySide6.QtGui import QShortcut, QKeySequence
 
 from .linked_list_view import LinkedListView
+from .operation_colors import OPERATION_COLORS
 from .presentation import format_variable_explanations
 from ui.panel_icons import ICON_SIZE, panel_icon
 
@@ -20,6 +21,7 @@ from ui.panel_icons import ICON_SIZE, panel_icon
 class VisualizerPanel(QWidget):
     # Keep the visualization viewport stable while allowing its contents to scroll.
     VISUALIZATION_VIEWPORT_HEIGHT = 320
+    LEGEND_ITEMS = tuple((color, label.capitalize()) for label, color in OPERATION_COLORS.items())
 
     close_requested = Signal()
     source_requested = Signal(int, int)
@@ -49,6 +51,11 @@ class VisualizerPanel(QWidget):
         title.setStyleSheet("font-size: 15px; font-weight: 600;")
         top.addWidget(title)
         top.addStretch()
+        self.legend_button = QPushButton("Legend")
+        self.legend_button.setObjectName("legend_button")
+        self.legend_button.setToolTip("Show visualization color meanings")
+        self.legend_button.clicked.connect(self._toggle_legend)
+        top.addWidget(self.legend_button)
         self.close_button = QPushButton()
         self.close_button.setIcon(panel_icon("close"))
         self.close_button.setIconSize(ICON_SIZE)
@@ -119,13 +126,75 @@ class VisualizerPanel(QWidget):
         bottom.addWidget(output_group, 1)
         root.addLayout(bottom)
         self.setMinimumWidth(340)
+        self.legend_popup = QFrame(self, Qt.Popup)
+        self.legend_popup.setObjectName("legend_popup")
+        self.legend_popup.setMinimumWidth(220)
+        legend_layout = QVBoxLayout(self.legend_popup)
+        legend_layout.setContentsMargins(10, 8, 10, 10)
+        legend_layout.setSpacing(6)
+        legend_header = QHBoxLayout()
+        legend_title = QLabel("Visualization legend")
+        legend_title.setStyleSheet("font-weight: 800;")
+        legend_header.addWidget(legend_title)
+        legend_header.addStretch()
+        legend_close = QPushButton("×")
+        legend_close.setFixedSize(24, 24)
+        legend_close.setToolTip("Close legend")
+        legend_close.clicked.connect(self.legend_popup.hide)
+        legend_header.addWidget(legend_close)
+        legend_layout.addLayout(legend_header)
+        for color, label in self.LEGEND_ITEMS:
+            row = QHBoxLayout()
+            swatch = QLabel()
+            swatch.setFixedSize(16, 16)
+            swatch.setStyleSheet(f"background-color: {color}; border-radius: 3px;")
+            row.addWidget(swatch)
+            row.addWidget(QLabel(label))
+            row.addStretch()
+            legend_layout.addLayout(row)
+        self.legend_popup.setStyleSheet("""
+            QFrame#legend_popup {
+                background: #29384d;
+                border: 1px solid #78a9ff;
+                border-radius: 6px;
+            }
+            QFrame#legend_popup QLabel { color: #f1f3f4; }
+            QFrame#legend_popup QPushButton {
+                padding: 0px;
+                background: transparent;
+                border: 1px solid transparent;
+            }
+            QFrame#legend_popup QLabel {
+                background: transparent;
+            }
+        """)
+
         self.setStyleSheet("""
             QWidget { font-family: 'Inter', 'Segoe UI', sans-serif; font-weight: 700; }
             QLabel { font-size: 11px; }
             QGroupBox { font-size: 12px; font-weight: 800; }
             QPushButton { font-size: 11px; font-weight: 800; padding: 5px 8px; }
+            QPushButton#legend_button {
+                background: transparent;
+                border: 1px solid transparent;
+                color: #c7d6e8;
+            }
+            QPushButton#legend_button:hover {
+                background: #29384d;
+                border: 1px solid #78a9ff;
+            }
             QPlainTextEdit { font-family: 'JetBrains Mono', 'Cascadia Mono', monospace; font-weight: 700; font-size: 10px; }
         """)
+
+    def _toggle_legend(self):
+        if self.legend_popup.isVisible():
+            self.legend_popup.hide()
+            return
+        position = self.legend_button.mapToGlobal(QPoint(0, self.legend_button.height()))
+        self.legend_popup.adjustSize()
+        self.legend_popup.move(position)
+        self.legend_popup.show()
+        self.legend_popup.raise_()
 
     def load_trace(self, snapshots: list[dict], output: list[str], status: str, error: str | None = None):
         self.snapshots = snapshots or []

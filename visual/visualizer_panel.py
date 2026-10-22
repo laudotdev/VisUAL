@@ -10,6 +10,8 @@ from PySide6.QtWidgets import (
     QScrollArea, QGroupBox, QPlainTextEdit,
 )
 
+from PySide6.QtGui import QShortcut, QKeySequence
+
 from .linked_list_view import LinkedListView
 from .presentation import format_variable_explanations
 from ui.panel_icons import ICON_SIZE, panel_icon
@@ -28,6 +30,7 @@ class VisualizerPanel(QWidget):
         self.program_output: list[str] = []
         self.current_index = 0
         self._build_ui()
+        self.next_step()
 
     @staticmethod
     def _explanation_html(event_type: str, explanation: str) -> str:
@@ -81,6 +84,9 @@ class VisualizerPanel(QWidget):
         self.start_button.clicked.connect(self.start_step)
         self.previous_button.clicked.connect(self.previous_step)
         self.next_button.clicked.connect(self.next_step)
+        self.next_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Right), self)
+        self.next_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.next_shortcut.activated.connect(self.next_step)
         self.end_button.clicked.connect(self.end_step)
         nav.addWidget(self.start_button)
         nav.addWidget(self.previous_button)
@@ -133,6 +139,10 @@ class VisualizerPanel(QWidget):
         else:
             self.status_label.setText(f"Trace ready · {len(self.snapshots)} recorded states · {status}")
         self._render_step()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key == "Right":
+            self.next_step()
 
     def previous_step(self):
         if self.current_index > 0:

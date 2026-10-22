@@ -45,9 +45,9 @@ from ui.explorer import FileExplorer
 from ui.inline_output import InlineInputOutput
 from ui.terminal import TerminalPanel
 
-APP_NAME = "Lau-PyDE"
+APP_NAME = "VisUAL"
 APP_VERSION = "0.0.1"
-SETTINGS_ORGANIZATION = "Lau-PyDE"
+SETTINGS_ORGANIZATION = "VisUAL"
 
 RECENT_PROJECT_FILE = Path.home() / ".lau_pyde_recent.json"
 

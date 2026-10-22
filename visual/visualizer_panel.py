@@ -84,9 +84,16 @@ class VisualizerPanel(QWidget):
         self.start_button.clicked.connect(self.start_step)
         self.previous_button.clicked.connect(self.previous_step)
         self.next_button.clicked.connect(self.next_step)
+        # for Right arrow next_step
         self.next_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Right), self)
         self.next_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.next_shortcut.activated.connect(self.next_step)
+
+        # for Left arrow next_step
+        self.previous_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Left), self)
+        self.previous_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.previous_shortcut.activated.connect(self.previous_step)
+
         self.end_button.clicked.connect(self.end_step)
         nav.addWidget(self.start_button)
         nav.addWidget(self.previous_button)

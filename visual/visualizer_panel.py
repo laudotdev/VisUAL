@@ -30,7 +30,7 @@ class VisualizerPanel(QWidget):
         self.program_output: list[str] = []
         self.current_index = 0
         self._build_ui()
-        self.next_step()
+        # self._set_shortcuts()
 
     @staticmethod
     def _explanation_html(event_type: str, explanation: str) -> str:
@@ -84,15 +84,6 @@ class VisualizerPanel(QWidget):
         self.start_button.clicked.connect(self.start_step)
         self.previous_button.clicked.connect(self.previous_step)
         self.next_button.clicked.connect(self.next_step)
-        # for Right arrow next_step
-        self.next_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Right), self)
-        self.next_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        self.next_shortcut.activated.connect(self.next_step)
-
-        # for Left arrow next_step
-        self.previous_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Left), self)
-        self.previous_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        self.previous_shortcut.activated.connect(self.previous_step)
 
         self.end_button.clicked.connect(self.end_step)
         nav.addWidget(self.start_button)
@@ -147,9 +138,20 @@ class VisualizerPanel(QWidget):
             self.status_label.setText(f"Trace ready · {len(self.snapshots)} recorded states · {status}")
         self._render_step()
 
-    def keyPressEvent(self, event) -> None:
-        if event.key == "Right":
-            self.next_step()
+    # def keyPressEvent(self, event) -> None:
+    #     if event.key == "Right":
+    #         self.next_step()
+
+    def _set_shortcuts(self):
+        # for Right arrow next_step
+        self.next_shortcut = QShortcut(QKeySequence("Alt+Right"), self)
+        self.next_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self.next_shortcut.activated.connect(self.next_step)
+
+        # for Left arrow next_step
+        self.previous_shortcut = QShortcut(QKeySequence("Alt+Left"), self)
+        self.previous_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self.previous_shortcut.activated.connect(self.previous_step)
 
     def previous_step(self):
         if self.current_index > 0:

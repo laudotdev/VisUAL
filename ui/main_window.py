@@ -326,6 +326,8 @@ class MainWindow(QMainWindow):
         self.visualizer_panel.hide()
         self.visualizer_panel.close_requested.connect(self._hide_visualizer)
         self.visualizer_panel.source_requested.connect(self._navigate_visual_source)
+        # self.visualizer_panel.next_step()
+        # self.visualizer_panel.previous_step()
 
         # self.explorer = FileExplorer()
         # self.load_recent_project()
@@ -756,6 +758,19 @@ class MainWindow(QMainWindow):
         show_commands_list_action = QAction("Show Key Shortcuts", self)
         show_commands_list_action.setCheckable(True)
         show_commands_list_action.setChecked(self.explorer._commands_section.isVisible())
+
+        # global alt+arrow shortcuts global cursor focus
+        self.next_shortcut = QShortcut(QKeySequence("Alt+Right"), self)
+        self.next_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self.next_shortcut.activated.connect(
+            self.visualizer_panel.next_step
+        )
+        """ for prev_step """
+        self.previous_shortcut = QShortcut(QKeySequence("Alt+Left"), self)
+        self.previous_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        self.previous_shortcut.activated.connect(
+            self.visualizer_panel.previous_step
+        )
 
         # when the menu action is toggled, use the explorer's toggle method
         def _menu_toggle_commands(checked: bool) -> None:

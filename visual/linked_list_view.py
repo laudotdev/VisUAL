@@ -262,7 +262,9 @@ class LinkedListView(QWidget):
             is_deleted = node["id"] == self._snapshot.get("deleted_node_ref")
             operation_color = visualization.get("operation_color") or "#78a9ff"
             active_ref = visualization.get("active_object", {}).get("reference_id")
-            is_active_operation = node["id"] == active_ref or is_deleted
+            is_active_operation = (
+                node["id"] == active_ref and visualization.get("operation") != "DELETION"
+            ) or is_deleted
             border_color = "#ff5555" if is_deleted else ("#66bb6a" if is_traversed else (operation_color if is_active_operation else "#78a9ff"))
             fill_color = "#5c252d" if is_deleted else ("#315c38" if is_traversed else "#29384d")
             border = QColor(border_color)

@@ -226,6 +226,7 @@ class ControlledInterpreter:
             condition = bool(self._eval(node.test))
             expression = ast.unparse(node.test)
             branch = "the if branch" if condition else "the else branch"
+            self._pending_evaluation = f"{expression} → {condition}"
             event, explanation = "condition", f"Condition `{expression}` evaluated to {condition}; execution follows {branch}."
             self._record(node, event, explanation)
             self._exec_block(node.body if condition else node.orelse)
@@ -634,8 +635,9 @@ class ControlledInterpreter:
 
     def _decorate_visualization(self, visualization: dict, node: ast.AST | None, event_type: str) -> None:
         declaration = self._active_creation_expression
-        if event_type == "condition" and isinstance(node, ast.While):
-            declaration = f"while {ast.unparse(node.test)}"
+        if event_type == "condition" and isinstance(node, (ast.If, ast.While)):
+            keyword = "if" if isinstance(node, ast.If) else "while"
+            declaration = f"{keyword} {ast.unparse(node.test)}"
         elif declaration is None and node is not None:
             declaration = ast.unparse(node)
         if declaration:

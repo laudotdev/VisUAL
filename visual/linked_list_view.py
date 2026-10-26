@@ -124,6 +124,8 @@ def visualization_summary_lines(visualization: dict) -> list[str]:
 
 
 class LinkedListView(QWidget):
+    NODE_AREA_TOP = 155
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._snapshot: dict = {}
@@ -145,17 +147,11 @@ class LinkedListView(QWidget):
         count = len(self._snapshot.get("nodes", []))
         if count == 0:
             return 190
-        node_w, node_h, gap_x, gap_y, margin_x, margin_y = 155, 90, 44, 48, 20, 48
-        visualization = self._snapshot.get("visualization", {})
-        active_object = visualization.get("active_object", {})
-        declaration = visualization.get("declaration") or active_object.get("expression")
-        attribute_count = len(active_object.get("attributes", []))
-        summary_count = len(visualization_summary_lines(visualization))
-        declaration_offset = 26 + attribute_count * 16 + summary_count * 16 if declaration else 0
+        node_w, node_h, gap_x, gap_y, margin_x = 155, 90, 44, 48, 20
         usable = max(1, width - 2 * margin_x)
         per_row = max(1, (usable + gap_x) // (node_w + gap_x))
         rows = (count + per_row - 1) // per_row
-        return margin_y + declaration_offset + rows * node_h + max(0, rows - 1) * gap_y + 30
+        return self.NODE_AREA_TOP + rows * node_h + max(0, rows - 1) * gap_y + 30
 
     def set_snapshot(self, snapshot: dict) -> None:
         self._snapshot = snapshot or {}
@@ -208,7 +204,7 @@ class LinkedListView(QWidget):
             return
 
         node_w, node_h, gap_x, gap_y = 148, 62, 44, 48
-        margin_x, margin_y = 20, 48 + operation_offset
+        margin_x, margin_y = 20, self.NODE_AREA_TOP
         usable = max(1, width - 2 * margin_x)
         per_row = max(1, (usable + gap_x) // (node_w + gap_x))
         rects = {}
@@ -222,12 +218,10 @@ class LinkedListView(QWidget):
 
         active_object = visualization.get("active_object", {})
         declaration = visualization.get("declaration") or active_object.get("expression")
-        declaration_offset = 0
         if declaration:
             painter.setPen(QColor("#8be9fd"))
             painter.setFont(QFont("Sans Serif", 9, QFont.Bold))
             painter.drawText(20, 22 + operation_offset, declaration)
-            declaration_offset = 26
             values = active_object.get("values", {})
             attributes = active_object.get("attributes", [])
             for index, attribute in enumerate(attributes, start=1):
@@ -237,16 +231,10 @@ class LinkedListView(QWidget):
                 painter.drawText(20, 22 + operation_offset + index * 16, attribute_display_line(
                     attribute, value, active_object.get("attribute_change")
                 ))
-            declaration_offset += len(attributes) * 16
             for index, detail in enumerate(visualization_summary_lines(visualization), start=1):
                 painter.setPen(QColor("#c7d6e8"))
                 painter.setFont(QFont("Sans Serif", 8))
                 painter.drawText(20, 22 + operation_offset + (len(attributes) + index) * 16, detail)
-            declaration_offset += len(visualization_summary_lines(visualization)) * 16
-
-        if declaration_offset:
-            for rect in rects.values():
-                rect.translate(0, declaration_offset)
 
         # Head marker points to the first node when visible.
         first = nodes[0]

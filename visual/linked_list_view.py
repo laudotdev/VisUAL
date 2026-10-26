@@ -258,7 +258,12 @@ class LinkedListView(QWidget):
 
         for node in nodes:
             rect = rects[node["id"]]
-            is_traversed = node["id"] == traversed_ref
+            is_traversed = (
+                node["id"] == traversed_ref
+                and visualization.get("operation") == "TRAVERSAL"
+                and visualization.get("loop_iteration") != "finished"
+                and self._snapshot.get("event_type") != "completed"
+            )
             is_deleted = node["id"] == self._snapshot.get("deleted_node_ref")
             operation_color = visualization.get("operation_color") or "#78a9ff"
             active_ref = visualization.get("active_object", {}).get("reference_id")

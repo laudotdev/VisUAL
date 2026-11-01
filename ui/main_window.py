@@ -743,6 +743,7 @@ class MainWindow(QMainWindow):
 
         show_explorer_action = QAction("Show Explorer", self)
         show_explorer_action.triggered.connect(self._show_explorer)
+        show_explorer_action.setShortcut(QKeySequence("Ctrl+E"))
         view_menu.addAction(show_explorer_action)
 
         show_output_action = QAction("Show Output", self)

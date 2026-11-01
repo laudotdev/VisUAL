@@ -6,7 +6,9 @@ universal security sandbox.
 """
 from __future__ import annotations
 
+# AST nodes ang input; sadyang hindi gumagamit ng eval/exec ang interpreter.
 import ast
+# Dataclasses para sa result records; Any dahil iba-iba ang runtime values.
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -27,6 +29,8 @@ class ExecutionResult:
 class _Instance:
     """Represent a runtime object with a stable visualization identity."""
 
+    # Underscore prefix means internal implementation detail, hindi public API.
+
     def __init__(self, class_name: str, identity: int):
         """Create an empty runtime instance of a supported class."""
         self.class_name = class_name
@@ -37,6 +41,7 @@ class _Instance:
 class _Missing:
     """Sentinel type used to distinguish missing values from explicit None."""
 
+    # Empty class ito dahil type/identity lang ang purpose ng sentinel.
     pass
 
 
@@ -71,12 +76,14 @@ class _ContinueSignal(Exception):
 
 
 class _StepLimit(Exception):
+    # Special exception para ihinto ang runaway loops bago ma-freeze ang IDE.
     """Internal error raised when execution exceeds configured safety limits."""
 
     pass
 
 
 class ControlledInterpreter:
+    # Coordinator ito ng validation, AST execution, snapshots, at metadata.
     """Execute a validated linked-list program and produce immutable snapshots."""
 
     def __init__(self, max_steps: int = 5000, max_snapshots: int = 5000):
@@ -175,6 +182,8 @@ class ControlledInterpreter:
             self._exec_stmt(statement)
 
     def _exec_stmt(self, node: ast.stmt) -> None:
+        # Explicit dispatch ito sa supported AST statement types; predictable
+        # ang behavior dahil hindi arbitrary Python ang ipinapasa sa runtime.
         # This dispatcher converts one AST statement into one or more trace states.
         """Interpret one AST statement and record its resulting state."""
         self._tick()
@@ -357,6 +366,7 @@ class ControlledInterpreter:
             raise RuntimeError(f"Unsupported assignment target: {type(target).__name__}")
 
     def _eval(self, node: ast.AST | None) -> Any:
+        # Values are computed from AST nodes, hindi mula sa raw source string.
         # This is the controlled AST evaluator; Python eval/exec is intentionally avoided.
         """Evaluate one supported AST expression without using Python eval."""
         if node is None:
@@ -614,6 +624,7 @@ class ControlledInterpreter:
         return str(value)
 
     def _make_snapshot(self, node: ast.AST | None, event_type: str, explanation: str) -> dict:
+        # Isang frame ng animation ang snapshot: state kasama ang paliwanag.
         # Snapshots serialize the post-event state used by every frontend panel.
         """Build a complete serialized state after the current execution event."""
         node_instances = [item for item in self.instances if item.class_name == "Node"]

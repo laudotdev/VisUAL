@@ -1,6 +1,7 @@
 """Subprocess entry point for VisUAL's controlled interpreter."""
-import json
-import sys
+# JSON ang protocol ng worker; sys.stdin/stdout ang pipe papunta sa parent IDE.
+import json # for the protocol between the worker and the IDE
+import sys # for reading from stdin and writing to stdout
 
 from visual.interpreter import ControlledInterpreter
 

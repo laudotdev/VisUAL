@@ -1,6 +1,8 @@
 """VisUAL step-through panel, separate from the IDE Output and Terminal."""
 from __future__ import annotations
 
+# `escape` makes user text safe sa QLabel rich text; `re` naghahanap ng
+# backtick-wrapped inline code sa explanation.
 from html import escape
 import re
 
@@ -20,6 +22,8 @@ from ui.panel_icons import ICON_SIZE, panel_icon
 
 class VisualizerPanel(QWidget):
     """Provide step navigation and synchronized visualization panels."""
+    # QWidget subclass ito, kaya puwedeng ilagay sa normal Qt layout.
+    # Signals sa ibaba ay events na maaaring pakinggan ng main window.
     # Keep the visualization viewport stable while allowing its contents to scroll.
     VISUALIZATION_VIEWPORT_HEIGHT = 320
     LEGEND_ITEMS = tuple((color, label.capitalize()) for label, color in OPERATION_COLORS.items())
@@ -130,7 +134,7 @@ class VisualizerPanel(QWidget):
         bottom.addWidget(output_group, 1)
         root.addLayout(bottom)
         self.setMinimumWidth(340)
-        self.legend_popup = QFrame(self, Qt.Popup)
+        self.legend_popup = QFrame(self, Qt.Popup) # for the legend codes
         self.legend_popup.setObjectName("legend_popup")
         self.legend_popup.setMinimumWidth(220)
         legend_layout = QVBoxLayout(self.legend_popup)
@@ -173,6 +177,7 @@ class VisualizerPanel(QWidget):
             }
         """)
 
+        # for the styling of visuaizer panel, including the legend popup and buttons
         self.setStyleSheet("""
             QWidget { font-family: 'Inter', 'Segoe UI', sans-serif; font-weight: 700; }
             QLabel { font-size: 11px; }
@@ -190,6 +195,7 @@ class VisualizerPanel(QWidget):
             QPlainTextEdit { font-family: 'JetBrains Mono', 'Cascadia Mono', monospace; font-weight: 700; font-size: 10px; }
         """)
 
+    # the following methods are for navigation and rendering of the trace steps, including toggling the legend popup, loading traces, and updating the UI based on the current step.
     def _toggle_legend(self):
         # The popup is anchored below the button instead of covering the diagram center.
         """Show or hide the legend directly below its toolbar button."""
@@ -202,6 +208,7 @@ class VisualizerPanel(QWidget):
         self.legend_popup.show()
         self.legend_popup.raise_()
 
+    # for the output trace, including the snapshots, program output, and status. The load_trace method initializes the panel with the provided data and renders the first step.
     def load_trace(self, snapshots: list[dict], output: list[str], status: str, error: str | None = None):
         """Load immutable execution snapshots and render the first step."""
         self.snapshots = snapshots or []
@@ -213,10 +220,6 @@ class VisualizerPanel(QWidget):
         else:
             self.status_label.setText(f"Trace ready · {len(self.snapshots)} recorded states · {status}")
         self._render_step()
-
-    # def keyPressEvent(self, event) -> None:
-    #     if event.key == "Right":
-    #         self.next_step()
 
     def _set_shortcuts(self):
         """Configure optional window-level keyboard navigation shortcuts."""

@@ -1,7 +1,9 @@
 """Beginner-friendly formatting for immutable VisUAL snapshot values."""
 from __future__ import annotations
+# `escape` protects rich-text output kapag user/program data ang ipinapakita.
 from html import escape
 
+# `Any` ay type hint para sa serialized values na iba-iba ang aktuwal na type.
 from typing import Any
 
 

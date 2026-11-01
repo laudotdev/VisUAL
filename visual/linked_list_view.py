@@ -1,6 +1,8 @@
 """Responsive painter-based singly linked-list diagram."""
 from __future__ import annotations
 
+# Qt classes: QPainter ang nagdo-drawing, QRect/QSize ang geometry, at Qt ang
+# enum values gaya ng alignment at pen styles.
 from PySide6.QtCore import Qt, QSize, QRectF
 from PySide6.QtGui import QColor, QPainter, QPen, QBrush, QFont
 from PySide6.QtWidgets import QWidget
@@ -8,6 +10,7 @@ from PySide6.QtWidgets import QWidget
 
 def reachable_node_positions(snapshot: dict) -> tuple[list[dict], dict[int, int], bool]:
     # Layout follows head/next references, never numeric object-ID ordering.
+    # Return values: ordered nodes, ID-to-position map, at cycle-detected flag.
     """Derive presentation positions from the current head/next chain."""
     raw_nodes = snapshot.get("nodes")
     if not isinstance(raw_nodes, list):

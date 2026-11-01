@@ -1,6 +1,8 @@
 """Trace snapshot helpers for VisUAL."""
 from __future__ import annotations
 
+# `deepcopy` ang kailangan dahil nested ang dictionaries/lists ng snapshot;
+# hindi sapat ang shallow copy para maprotektahan ang history.
 from copy import deepcopy
 
 

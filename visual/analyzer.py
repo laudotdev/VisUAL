@@ -4,12 +4,16 @@ This module only parses and inspects source. It never executes target code.
 """
 from __future__ import annotations
 
+# `ast` = Abstract Syntax Tree; structure ng Python code na binabasa nang hindi
+# ine-execute, kaya mas ligtas ang validation.
 import ast
+# `dataclass` gumagawa ng boilerplate; default_factory ay bagong list bawat object.
 from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
 # A diagnostic points to the exact source location that needs attention.
+# `frozen=True` means read-only ang diagnostic pagkatapos malikha.
 class Diagnostic:
     """Describe one source-code problem found during AST validation."""
     message: str
@@ -24,6 +28,7 @@ class Diagnostic:
 
 @dataclass
 # The analysis result is the contract between source validation and execution.
+# Ang `str | None` ay union type: string o None kapag walang nakita.
 class AnalysisResult:
     """Store validation status, diagnostics, and detected DSA intent."""
     supported: bool
@@ -63,6 +68,9 @@ _FORBIDDEN_NAMES = {
 class _Validator(ast.NodeVisitor):
     """Walk Python's AST and reject syntax outside VisUAL's safe subset."""
 
+    # `NodeVisitor` ay visitor pattern: visit_<NodeType> ang special handler;
+    # generic_visit ang fallback na dumadalaw sa nested children.
+
     def __init__(self, class_names: set[str] | None = None, method_names: set[str] | None = None) -> None:
         """Initialize the validator with known user-defined names."""
         self.diagnostics: list[Diagnostic] = []
@@ -79,6 +87,8 @@ class _Validator(ast.NodeVisitor):
 
     def generic_visit(self, node: ast.AST) -> None:
         # AST nodes outside the allow-list are rejected before execution.
+        # `super()` dito ay nagpapatuloy ng inspection sa nested nodes, hindi
+        # nito ine-execute ang program.
         """Visit AST children while applying the supported-syntax rules."""
         if isinstance(node, ast.ImportFrom) and node.module == "dsa" and any(
             alias.name == "LinkedList" for alias in node.names

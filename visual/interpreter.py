@@ -17,6 +17,7 @@ from .trace import freeze_snapshot
 
 @dataclass
 class ExecutionResult:
+    """Return the controlled program status, snapshots, output, and error."""
     status: str
     snapshots: list[dict] = field(default_factory=list)
     output: list[str] = field(default_factory=list)
@@ -24,13 +25,18 @@ class ExecutionResult:
 
 
 class _Instance:
+    """Represent a runtime object with a stable visualization identity."""
+
     def __init__(self, class_name: str, identity: int):
+        """Create an empty runtime instance of a supported class."""
         self.class_name = class_name
         self.identity = identity
         self.attrs: dict[str, Any] = {}
 
 
 class _Missing:
+    """Sentinel type used to distinguish missing values from explicit None."""
+
     pass
 
 
@@ -39,24 +45,34 @@ _MISSING = _Missing()
 
 @dataclass
 class _Method:
+    """Pair a runtime object with one of its AST-defined methods."""
     owner: _Instance
     function: ast.FunctionDef
 
 
 class _ReturnSignal(Exception):
+    """Internal control-flow signal for returning from an interpreted method."""
+
     def __init__(self, value: Any):
+        """Store the value being returned."""
         self.value = value
 
 
 class _BreakSignal(Exception):
+    """Internal control-flow signal for leaving an interpreted loop."""
+
     pass
 
 
 class _ContinueSignal(Exception):
+    """Internal control-flow signal for starting the next loop iteration."""
+
     pass
 
 
 class _StepLimit(Exception):
+    """Internal error raised when execution exceeds configured safety limits."""
+
     pass
 
 
@@ -64,11 +80,13 @@ class ControlledInterpreter:
     """Execute a validated linked-list program and produce immutable snapshots."""
 
     def __init__(self, max_steps: int = 5000, max_snapshots: int = 5000):
+        """Configure execution and snapshot safety limits."""
         self.max_steps = max_steps
         self.max_snapshots = max_snapshots
         self._reset()
 
     def _reset(self) -> None:
+        """Clear runtime state before starting a new interpreted program."""
         self.tree = None
         self.classes: dict[str, ast.ClassDef] = {}
         self.globals: dict[str, Any] = {}
@@ -96,6 +114,8 @@ class ControlledInterpreter:
         self._active_creation_target: str | None = None
 
     def run(self, source: str) -> ExecutionResult:
+        # Validation happens before any runtime state is created.
+        """Validate, execute, and trace a supported source program."""
         self._reset()
         self.source = source
         # The UI requires the dsa import before launching VisUAL. Keeping the
@@ -140,18 +160,23 @@ class ControlledInterpreter:
         return ExecutionResult(self.status, self.snapshots, self.output, self.error)
 
     def _tick(self) -> None:
+        """Count one execution action and enforce the step limit."""
         self.steps += 1
         if self.steps > self.max_steps:
             raise _StepLimit()
 
     def _locals(self) -> dict[str, Any]:
+        """Return the current method frame or the global namespace."""
         return self.frames[-1] if self.frames else self.globals
 
     def _exec_block(self, statements: list[ast.stmt]) -> None:
+        """Execute statements in source order within the current frame."""
         for statement in statements:
             self._exec_stmt(statement)
 
     def _exec_stmt(self, node: ast.stmt) -> None:
+        # This dispatcher converts one AST statement into one or more trace states.
+        """Interpret one AST statement and record its resulting state."""
         self._tick()
         event = "statement"
         explanation = f"Executed {type(node).__name__}."
@@ -223,6 +248,7 @@ class ControlledInterpreter:
                 self._eval(node.value)
                 event, explanation = "expression", "Evaluated an expression or method call."
         elif isinstance(node, ast.If):
+            # If conditions are recorded before the selected branch executes.
             condition = bool(self._eval(node.test))
             expression = ast.unparse(node.test)
             branch = "the if branch" if condition else "the else branch"
@@ -232,6 +258,7 @@ class ControlledInterpreter:
             self._exec_block(node.body if condition else node.orelse)
             return
         elif isinstance(node, ast.While):
+            # Each loop test gets its own snapshot so learners can see True and False.
             iteration = 0
             while bool(self._eval(node.test)):
                 self._tick()
@@ -268,6 +295,8 @@ class ControlledInterpreter:
             self._active_creation_target = previous_creation_target
 
     def _assignment_event(self, node: ast.AST, value: Any) -> tuple[str, str]:
+        # Attribute names determine whether an assignment changes data, a link, or head.
+        """Map an assignment target to a learner-facing trace event."""
         if isinstance(node, ast.Assign):
             targets = node.targets
         else:
@@ -284,6 +313,8 @@ class ControlledInterpreter:
         return "assignment", "Updated a value or reference."
 
     def _assign(self, target: ast.expr, value: Any) -> None:
+        # Assignment updates the live object graph and records the transition metadata.
+        """Assign a value while recording variable and attribute relationships."""
         if isinstance(target, ast.Name):
             previous = self._locals().get(target.id, _MISSING)
             self._locals()[target.id] = value
@@ -326,6 +357,8 @@ class ControlledInterpreter:
             raise RuntimeError(f"Unsupported assignment target: {type(target).__name__}")
 
     def _eval(self, node: ast.AST | None) -> Any:
+        # This is the controlled AST evaluator; Python eval/exec is intentionally avoided.
+        """Evaluate one supported AST expression without using Python eval."""
         if node is None:
             return None
         if isinstance(node, ast.Constant):
@@ -436,6 +469,7 @@ class ControlledInterpreter:
         raise RuntimeError(f"Unsupported expression: {type(node).__name__}")
 
     def _transition_value(self, value: Any) -> Any:
+        """Format a value for before-and-after transition explanations."""
         if value is _MISSING:
             return "not set"
         if isinstance(value, _Instance):
@@ -446,11 +480,13 @@ class ControlledInterpreter:
 
     @staticmethod
     def _format_call_argument(value: Any) -> str:
+        """Format a method argument for a readable call declaration."""
         if isinstance(value, _Instance):
             return f"{value.class_name} object #{value.identity}"
         return repr(value) if isinstance(value, str) else str(value)
 
     def _construct(self, class_name: str, args: list[Any]) -> _Instance:
+        """Create an instance, initialize it, and retain its stable identity."""
         instance = _Instance(class_name, self.next_identity)
         self.next_identity += 1
         self.instances.append(instance)
@@ -461,6 +497,7 @@ class ControlledInterpreter:
 
     @staticmethod
     def _class_explanation(node: ast.ClassDef) -> str:
+        """Describe a class blueprint and the attributes found in its initializer."""
         fields = []
         for function in node.body:
             if isinstance(function, ast.FunctionDef) and function.name == "__init__":
@@ -470,18 +507,21 @@ class ControlledInterpreter:
         return f"Defined class {node.name} as a blueprint for creating objects." + (f" It describes {detail}." if detail else "")
 
     def _method_call_explanation(self, method: _Method, args: list[Any], call_text: str) -> str:
+        """Explain self and argument bindings for a method call."""
         parameters = [arg.arg for arg in method.function.args.args]
         pairs = [f"self refers to the {method.owner.class_name} object" ]
         pairs.extend(f"{name} receives {self._describe_value(value)}" for name, value in zip(parameters[1:] if parameters and parameters[0] == "self" else parameters, args))
         return f"Method call {call_text}: " + "; ".join(pairs) + "."
 
     def _find_method(self, class_name: str, method_name: str) -> ast.FunctionDef | None:
+        """Find a method definition in the analyzed class AST."""
         cls = self.classes.get(class_name)
         if cls is None:
             return None
         return next((item for item in cls.body if isinstance(item, ast.FunctionDef) and item.name == method_name), None)
 
     def _call_method(self, owner: _Instance, function: ast.FunctionDef, args: list[Any]) -> Any:
+        """Bind a method frame and execute its body with controlled returns."""
         parameters = [arg.arg for arg in function.args.args]
         if parameters and parameters[0] == "self":
             expected = parameters[1:]
@@ -506,6 +546,7 @@ class ControlledInterpreter:
 
     @staticmethod
     def _compare(op: ast.cmpop, left: Any, right: Any) -> bool:
+        """Apply one supported comparison operator to evaluated values."""
         if isinstance(op, ast.Eq): return left == right
         if isinstance(op, ast.NotEq): return left != right
         if isinstance(op, ast.Is): return left is right
@@ -519,6 +560,7 @@ class ControlledInterpreter:
         raise RuntimeError(f"Unsupported comparison: {type(op).__name__}")
 
     def _apply_binop(self, op: ast.operator, left: Any, right: Any) -> Any:
+        """Apply a supported arithmetic operator with resource limits."""
         if isinstance(op, ast.Mult):
             if isinstance(left, str) and isinstance(right, int) and len(left) * max(0, right) > self.max_string_characters:
                 raise RuntimeError("String operation exceeds VisUAL's size limit.")
@@ -538,6 +580,7 @@ class ControlledInterpreter:
         return result
 
     def _append_output(self, text: str) -> None:
+        """Append program output while enforcing the output-size limit."""
         self.output_characters += len(text) + 1
         if self.output_characters > self.max_output_characters:
             raise RuntimeError("Program output exceeded VisUAL's size limit.")
@@ -545,11 +588,13 @@ class ControlledInterpreter:
 
     @staticmethod
     def _display_value(value: Any) -> Any:
+        """Convert runtime objects into safe values for Program Output."""
         if isinstance(value, _Instance):
             return f"<{value.class_name} #{value.identity}>"
         return value
 
     def _describe_value(self, value: Any) -> str:
+        """Describe a runtime value for explanations and trace messages."""
         if value is _MISSING:
             return "not set"
         if isinstance(value, _Instance):
@@ -557,6 +602,7 @@ class ControlledInterpreter:
         return repr(value)
 
     def _serialize_value(self, value: Any) -> Any:
+        """Convert runtime values into immutable snapshot-friendly data."""
         if isinstance(value, _Instance):
             return {"ref": value.identity, "class": value.class_name}
         if isinstance(value, (str, int, float, bool)) or value is None:
@@ -568,6 +614,8 @@ class ControlledInterpreter:
         return str(value)
 
     def _make_snapshot(self, node: ast.AST | None, event_type: str, explanation: str) -> dict:
+        # Snapshots serialize the post-event state used by every frontend panel.
+        """Build a complete serialized state after the current execution event."""
         node_instances = [item for item in self.instances if item.class_name == "Node"]
         list_instances = [item for item in self.instances if item.class_name == "LinkedList"]
         # Display nodes reachable from any known list head, in linked order. Keep
@@ -634,6 +682,8 @@ class ControlledInterpreter:
         }
 
     def _decorate_visualization(self, visualization: dict, node: ast.AST | None, event_type: str) -> None:
+        # Presentation metadata is derived from the same state as variables and nodes.
+        """Add declarations, transitions, operation labels, and active objects."""
         declaration = self._active_creation_expression
         if event_type == "condition" and isinstance(node, (ast.If, ast.While)):
             keyword = "if" if isinstance(node, ast.If) else "while"
@@ -688,6 +738,8 @@ class ControlledInterpreter:
             visualization["active_object"] = self._object_visualization_metadata("object", active_node)
 
     def _operation_for_snapshot(self, node: ast.AST | None, event_type: str) -> str | None:
+        # Operation colors describe the current method/event, not an arbitrary node ID.
+        """Choose the operation color category from event and method context."""
         class_name = self.frames[-1].get("__class_name") if self.frames else None
         method_name = self.frames[-1].get("__method_name") if self.frames else None
         if method_name == "__init__":
@@ -716,6 +768,7 @@ class ControlledInterpreter:
         return None
 
     def _method_operation(self, class_name: str | None, method_name: str | None) -> str | None:
+        """Infer the operation represented by a method's AST body."""
         function = self._method_ast(class_name, method_name)
         if function is None or method_name == "__init__":
             return None
@@ -733,11 +786,13 @@ class ControlledInterpreter:
         return None
 
     def _method_ast(self, class_name: str | None, method_name: str | None) -> ast.FunctionDef | None:
+        """Return the AST method body for a runtime class and method name."""
         if not class_name or not method_name:
             return None
         return self._find_method(class_name, method_name)
 
     def _method_creates_node(self, class_name: str | None, method_name: str | None) -> bool:
+        """Check whether a method constructs a Node object anywhere in its body."""
         function = self._method_ast(class_name, method_name)
         return bool(function and any(
             isinstance(item, ast.Call) and isinstance(item.func, ast.Name) and item.func.id == "Node"
@@ -745,10 +800,13 @@ class ControlledInterpreter:
         ))
 
     def _method_is_traversal(self, class_name: str | None, method_name: str | None) -> bool:
+        """Check whether a method contains a supported while-loop traversal."""
         function = self._method_ast(class_name, method_name)
         return bool(function and any(isinstance(item, ast.While) for item in ast.walk(function)))
 
     def _node_is_reachable(self, target: _Instance) -> bool:
+        # Reachability distinguishes a removed node from a node still linked elsewhere.
+        """Check whether a node remains reachable from any linked-list head."""
         for linked_list in (item for item in self.instances if item.class_name == "LinkedList"):
             current = linked_list.attrs.get("head")
             visited: set[int] = set()
@@ -762,6 +820,8 @@ class ControlledInterpreter:
         return False
 
     def _visualization_metadata(self, node: ast.AST | None, event_type: str) -> dict:
+        # Choose a blueprint, object card, or linked-list diagram for this event.
+        """Select the appropriate blueprint, object, or linked-list view metadata."""
         has_linked_head = any(
             isinstance(item.attrs.get("head"), _Instance)
             for item in self.instances
@@ -813,6 +873,7 @@ class ControlledInterpreter:
         return {"kind": "class_blueprint", "class_name": node.name, "attributes": attributes, "methods": methods}
 
     def _object_visualization_metadata(self, kind: str, instance: _Instance | None) -> dict:
+        """Serialize an object's identity, attributes, values, and active change."""
         metadata = {
             "kind": kind,
             "class_name": instance.class_name if instance else "Object",
@@ -838,6 +899,8 @@ class ControlledInterpreter:
         return metadata
 
     def _variable_explanations(self, variables: dict[str, Any], node: ast.AST | None, event_type: str) -> dict[str, dict[str, Any]]:
+        # Only variables relevant to the highlighted AST event are exposed to learners.
+        """Build context-sensitive explanations for variables and object paths."""
         explanations = {}
         relevant = self._relevant_variable_names(node, event_type)
         access_paths = self._access_paths(variables)
@@ -931,6 +994,7 @@ class ControlledInterpreter:
         return explanations
 
     def _resolve_access_path(self, path: str) -> Any:
+        """Resolve a dotted variable or attribute path in the current frames."""
         parts = path.split(".")
         if not parts:
             return _MISSING
@@ -948,6 +1012,7 @@ class ControlledInterpreter:
         return value
 
     def _reference_metadata(self, value: dict[str, Any], access_paths: dict[int, list[str]]) -> dict[str, Any]:
+        """Combine object identity, access paths, and current method context."""
         identity = value.get("ref")
         context = self.frames[-1] if self.frames else {}
         return {
@@ -959,6 +1024,8 @@ class ControlledInterpreter:
         }
 
     def _access_paths(self, variables: dict[str, Any]) -> dict[int, list[str]]:
+        # Breadth-first traversal finds aliases such as ll.head.next without inventing paths.
+        """Discover valid paths to referenced objects through their attributes."""
         paths: dict[int, set[str]] = {}
         queue: list[tuple[_Instance, str]] = []
         instances = {instance.identity: instance for instance in self.instances}
@@ -985,6 +1052,7 @@ class ControlledInterpreter:
         return {identity: sorted(values) for identity, values in paths.items()}
 
     def _relevant_variable_names(self, node: ast.AST | None, event_type: str) -> set[str] | None:
+        """Select variables mentioned by the current AST event."""
         if node is None:
             return None
         names: set[str] = set()
@@ -1012,10 +1080,12 @@ class ControlledInterpreter:
         return None
 
     def _node_data(self, identity: int | None) -> Any:
+        """Return serialized data for a node identity used by explanations."""
         instance = next((item for item in self.instances if item.identity == identity), None)
         return self._serialize_value(instance.attrs.get("data")) if instance else "unknown"
 
     def _attribute_explanation(self, attr: str, value: Any) -> str:
+        """Explain the educational meaning of a supported object attribute."""
         if attr == "data":
             return f"{self._describe_value(value)} — the value stored in the current node."
         if attr == "head":
@@ -1027,6 +1097,7 @@ class ControlledInterpreter:
         return f"Refers to the {value.class_name} object containing the next linked node." if isinstance(value, _Instance) else "Current attribute value."
 
     def _reference_explanation(self, owner: _Instance, attribute: str, value: Any, previous: Any) -> str:
+        """Explain how an attribute assignment changes an object relationship."""
         if attribute == "head":
             if value is None:
                 return "The linked list's head reference is now None, so the list is empty."
@@ -1043,6 +1114,7 @@ class ControlledInterpreter:
         )
 
     def _node_value(self, value: Any) -> Any:
+        """Return the stored data value for a Node-like runtime value."""
         if isinstance(value, _Instance):
             return self._describe_value(value.attrs.get("data"))
         return self._describe_value(value)
@@ -1057,6 +1129,8 @@ class ControlledInterpreter:
         return None
 
     def _record(self, node: ast.AST | None, event_type: str, explanation: str, force: bool = False) -> None:
+        # Freeze history immediately so later mutations cannot change an earlier step.
+        """Freeze and append one immutable execution snapshot."""
         if len(self.snapshots) >= self.max_snapshots and not force:
             raise _StepLimit()
         snapshot = self._make_snapshot(node, event_type, explanation)

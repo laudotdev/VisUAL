@@ -9,18 +9,23 @@ from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
+# A diagnostic points to the exact source location that needs attention.
 class Diagnostic:
+    """Describe one source-code problem found during AST validation."""
     message: str
     line: int = 1
     column: int = 1
     code: str = "visual.unsupported"
 
     def as_dict(self) -> dict:
+        """Convert this diagnostic into the dictionary used by the UI."""
         return {"message": self.message, "line": self.line, "column": self.column, "code": self.code}
 
 
 @dataclass
+# The analysis result is the contract between source validation and execution.
 class AnalysisResult:
+    """Store validation status, diagnostics, and detected DSA intent."""
     supported: bool
     node_class: str | None = None
     list_class: str | None = None
@@ -32,6 +37,7 @@ class AnalysisResult:
 
     @property
     def is_supported(self) -> bool:
+        """Return whether the source passed the analyzer's checks."""
         return self.supported
 
 
@@ -55,12 +61,16 @@ _FORBIDDEN_NAMES = {
 
 
 class _Validator(ast.NodeVisitor):
+    """Walk Python's AST and reject syntax outside VisUAL's safe subset."""
+
     def __init__(self, class_names: set[str] | None = None, method_names: set[str] | None = None) -> None:
+        """Initialize the validator with known user-defined names."""
         self.diagnostics: list[Diagnostic] = []
         self.class_names = class_names or set()
         self.method_names = method_names or set()
 
     def _add(self, node: ast.AST, message: str) -> None:
+        """Record a diagnostic at the AST node's source location."""
         self.diagnostics.append(Diagnostic(
             message=message,
             line=getattr(node, "lineno", 1),
@@ -68,6 +78,8 @@ class _Validator(ast.NodeVisitor):
         ))
 
     def generic_visit(self, node: ast.AST) -> None:
+        # AST nodes outside the allow-list are rejected before execution.
+        """Visit AST children while applying the supported-syntax rules."""
         if isinstance(node, ast.ImportFrom) and node.module == "dsa" and any(
             alias.name == "LinkedList" for alias in node.names
         ):
@@ -97,10 +109,14 @@ class _Validator(ast.NodeVisitor):
         super().generic_visit(node)
 
     def visit_Constant(self, node: ast.Constant) -> None:
+        # Literal values are checked explicitly because the interpreter is restricted.
+        """Allow only literal types understood by the controlled interpreter."""
         if not isinstance(node.value, (str, int, bool, type(None))):
             self._add(node, "Only None, booleans, integers, and strings are supported as literals.")
 
     def visit_Call(self, node: ast.Call) -> None:
+        # Calls are inspected, never executed, during static analysis.
+        """Validate a call without executing the user's program."""
         if isinstance(node.func, ast.Name):
             name = node.func.id
             if name not in self.class_names | {"print", "int", "str", "bool"}:
@@ -115,6 +131,8 @@ class _Validator(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        # Class bodies may contain only the declarations VisUAL can interpret.
+        """Validate a class body and inspect its supported declarations."""
         if node.bases or node.decorator_list or node.keywords:
             self._add(node, "Inheritance, class decorators, and class keywords are not supported by VisUAL.")
         for item in node.body:
@@ -124,6 +142,8 @@ class _Validator(ast.NodeVisitor):
             self.visit(item)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        # Method signatures and bodies must remain inside the supported subset.
+        """Validate a method signature and recursively inspect its body."""
         if node.decorator_list or node.args.vararg or node.args.kwarg or node.args.kwonlyargs:
             self._add(node, "Decorators, *args, **kwargs, and keyword-only parameters are not supported.")
         if node.args.defaults and len(node.args.defaults) > 0:
@@ -136,6 +156,7 @@ class _Validator(ast.NodeVisitor):
 
 
 def _intent(tree: ast.Module) -> tuple[str, int, list[str], list[str], str | None, str | None]:
+    # Intent detection explains why a source file is recognized as a DSA program.
     """Return explainable intent evidence without executing the source."""
     signals: list[str] = []
     evidence: list[str] = []
@@ -204,6 +225,7 @@ def _intent(tree: ast.Module) -> tuple[str, int, list[str], list[str], str | Non
 
 
 def analyze_source(source: str, *, require_dsa_import: bool = True) -> AnalysisResult:
+    # Parse first, then validate the resulting Python AST without running it.
     """Parse, detect, and validate a conventional Node + LinkedList program."""
     try:
         tree = ast.parse(source)
@@ -215,6 +237,7 @@ def analyze_source(source: str, *, require_dsa_import: bool = True) -> AnalysisR
     level, score, signals, evidence, detected_node, detected_list = _intent(tree)
 
     def result(supported: bool, diagnostics: list[Diagnostic] | None = None) -> AnalysisResult:
+        """Build an analysis result while retaining detected intent evidence."""
         return AnalysisResult(
             supported, detected_node, detected_list, diagnostics or [],
             level, score, signals, evidence,
@@ -269,6 +292,7 @@ def analyze_source(source: str, *, require_dsa_import: bool = True) -> AnalysisR
             if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute) and sub.func.attr in method_nodes:
                 call_graph[method_name].add(sub.func.attr)
     def reaches_self(start: str, current: str, visited: set[str]) -> bool:
+        """Check whether a class reference can resolve back to itself."""
         for target in call_graph.get(current, set()):
             if target == start:
                 return True

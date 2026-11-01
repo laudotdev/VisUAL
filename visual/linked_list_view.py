@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QWidget
 
 
 def reachable_node_positions(snapshot: dict) -> tuple[list[dict], dict[int, int], bool]:
+    # Layout follows head/next references, never numeric object-ID ordering.
     """Derive presentation positions from the current head/next chain."""
     raw_nodes = snapshot.get("nodes")
     if not isinstance(raw_nodes, list):
@@ -64,6 +65,7 @@ def blueprint_description(snapshot: dict) -> str:
 
 
 def attribute_display_line(name: str, value, change: dict | None = None) -> str:
+    """Format one object attribute, including a current transition when present."""
     if change and change.get("name") == name:
         return f"{name}: {change.get('before')} → {change.get('after')}"
     if name == "next" and isinstance(value, dict):
@@ -104,6 +106,7 @@ def runtime_object_description(snapshot: dict) -> str:
 
 
 def visualization_summary_lines(visualization: dict) -> list[str]:
+    """Collect compact evaluation and transition lines shown above the diagram."""
     lines = []
     if visualization.get("evaluation"):
         lines.append(visualization["evaluation"])
@@ -124,21 +127,26 @@ def visualization_summary_lines(visualization: dict) -> list[str]:
 
 
 class LinkedListView(QWidget):
+    """Paint a stable linked-list layout from one immutable execution snapshot."""
     NODE_AREA_TOP = 155
 
     def __init__(self, parent=None):
+        """Initialize the diagram widget and its fixed layout constraints."""
         super().__init__(parent)
         self._snapshot: dict = {}
         self.setMinimumHeight(170)
         self.setMinimumWidth(260)
 
     def sizeHint(self) -> QSize:
+        """Return the preferred size used by the visualization scroll area."""
         return QSize(500, self.heightForWidth(500))
 
     def hasHeightForWidth(self) -> bool:
+        """Tell Qt that diagram height depends on the available width."""
         return True
 
     def heightForWidth(self, width: int) -> int:
+        """Calculate space for wrapped rows while keeping their vertical origin fixed."""
         visualization_kind = self._snapshot.get("visualization", {}).get("kind")
         if visualization_kind in {"class_blueprint", "object", "linked_list_object"}:
             description = blueprint_description(self._snapshot) if visualization_kind == "class_blueprint" else runtime_object_description(self._snapshot)
@@ -154,12 +162,15 @@ class LinkedListView(QWidget):
         return self.NODE_AREA_TOP + rows * node_h + max(0, rows - 1) * gap_y + 30
 
     def set_snapshot(self, snapshot: dict) -> None:
+        """Replace the displayed immutable snapshot and schedule a repaint."""
         self._snapshot = snapshot or {}
         self.setMinimumHeight(self.heightForWidth(max(self.width(), 260)))
         self.updateGeometry()
         self.update()
 
     def paintEvent(self, event) -> None:
+        # Paint from the selected immutable snapshot so navigation stays consistent.
+        """Draw operation context, declarations, nodes, references, and highlights."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.fillRect(self.rect(), QColor("#202124"))
@@ -244,6 +255,7 @@ class LinkedListView(QWidget):
         painter.drawText(int(head_rect.left()), int(head_rect.top() - 18), "HEAD")
         painter.drawLine(int(head_rect.left() + 2), int(head_rect.top() - 8), int(head_rect.left() + 2), int(head_rect.top()))
 
+        # Only the traversed or operation-affected node receives a special border.
         for node in nodes:
             rect = rects[node["id"]]
             is_traversed = (
@@ -306,6 +318,8 @@ class LinkedListView(QWidget):
                 painter.drawText(QRectF(rect.right() - 10, rect.bottom() + 4, 90, 20), Qt.AlignLeft, "None")
 
     def _draw_card(self, painter: QPainter, width: int, lines: list[str]) -> None:
+        # Blueprints and unattached objects use the same compact card renderer.
+        """Draw a centered class blueprint or standalone object card."""
         card_width = min(420, max(250, width - 40))
         card_height = 28 + len(lines) * 25
         card = QRectF((width - card_width) / 2, max(18, (self.height() - card_height) / 2), card_width, card_height)

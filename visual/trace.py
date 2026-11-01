@@ -5,11 +5,13 @@ from copy import deepcopy
 
 
 def freeze_snapshot(snapshot: dict) -> dict:
+    # Deep copying prevents later interpreter mutations from rewriting history.
     """Return a detached snapshot so later mutations cannot alter history."""
     return deepcopy(snapshot)
 
 
 def validate_trace(snapshots: list[dict]) -> bool:
+    # Validate indexes and references before a frontend attempts to render the trace.
     """Basic consistency check for a serialized trace."""
     for index, snapshot in enumerate(snapshots):
         if snapshot.get("step_index") != index:

@@ -19,6 +19,7 @@ from ui.panel_icons import ICON_SIZE, panel_icon
 
 
 class VisualizerPanel(QWidget):
+    """Provide step navigation and synchronized visualization panels."""
     # Keep the visualization viewport stable while allowing its contents to scroll.
     VISUALIZATION_VIEWPORT_HEIGHT = 320
     LEGEND_ITEMS = tuple((color, label.capitalize()) for label, color in OPERATION_COLORS.items())
@@ -27,6 +28,7 @@ class VisualizerPanel(QWidget):
     source_requested = Signal(int, int)
 
     def __init__(self, parent=None):
+        """Create the panel and construct its controls and child views."""
         super().__init__(parent)
         self.snapshots: list[dict] = []
         self.program_output: list[str] = []
@@ -42,6 +44,8 @@ class VisualizerPanel(QWidget):
         return text.replace("\n", "<br>")
 
     def _build_ui(self):
+        # Keep navigation, diagram, explanations, and output in one synchronized panel.
+        """Build the legend, diagram, navigation, explanation, and output widgets."""
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(8)
@@ -187,6 +191,8 @@ class VisualizerPanel(QWidget):
         """)
 
     def _toggle_legend(self):
+        # The popup is anchored below the button instead of covering the diagram center.
+        """Show or hide the legend directly below its toolbar button."""
         if self.legend_popup.isVisible():
             self.legend_popup.hide()
             return
@@ -197,6 +203,7 @@ class VisualizerPanel(QWidget):
         self.legend_popup.raise_()
 
     def load_trace(self, snapshots: list[dict], output: list[str], status: str, error: str | None = None):
+        """Load immutable execution snapshots and render the first step."""
         self.snapshots = snapshots or []
         self.program_output = output or []
         self.current_index = 0
@@ -212,6 +219,7 @@ class VisualizerPanel(QWidget):
     #         self.next_step()
 
     def _set_shortcuts(self):
+        """Configure optional window-level keyboard navigation shortcuts."""
         # for Right arrow next_step
         self.next_shortcut = QShortcut(QKeySequence("Alt+Right"), self)
         self.next_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
@@ -223,26 +231,32 @@ class VisualizerPanel(QWidget):
         self.previous_shortcut.activated.connect(self.previous_step)
 
     def previous_step(self):
+        """Move to the previous recorded state when one exists."""
         if self.current_index > 0:
             self.current_index -= 1
             self._render_step()
 
     def start_step(self):
+        """Return to the first recorded execution state."""
         if self.snapshots and self.current_index != 0:
             self.current_index = 0
             self._render_step()
 
     def next_step(self):
+        """Move to the next recorded state when one exists."""
         if self.current_index < len(self.snapshots) - 1:
             self.current_index += 1
             self._render_step()
 
     def end_step(self):
+        """Move to the final recorded execution state."""
         if self.snapshots and self.current_index != len(self.snapshots) - 1:
             self.current_index = len(self.snapshots) - 1
             self._render_step()
 
     def _render_step(self):
+        # Every panel reads from exactly the currently selected snapshot.
+        """Synchronize source highlighting and every panel with the selected state."""
         total = len(self.snapshots)
         has_trace = total > 0
         self.previous_button.setEnabled(has_trace and self.current_index > 0)

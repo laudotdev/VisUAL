@@ -6,6 +6,8 @@ from visual.interpreter import ControlledInterpreter
 
 
 def main() -> int:
+    # The worker keeps controlled execution separate from the IDE process.
+    """Read source from standard input, run it, and emit JSON results."""
     source = sys.stdin.read()
     result = ControlledInterpreter(max_steps=5000, max_snapshots=5000).run(source)
     payload = {
